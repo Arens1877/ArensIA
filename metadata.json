@@ -1,0 +1,8 @@
+{
+  "name": "Arens IA",
+  "description": "Un potente asistente de IA multimodal que integra chat, generación y edición de imágenes, análisis de visión y capacidades de conversación en tiempo real, impulsado por la API de Gemini.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ]
+}
