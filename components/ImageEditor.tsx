@@ -1,7 +1,8 @@
+
 import React, { useState, useRef } from 'react';
 import { editImage } from '../services/geminiService';
 import { fileToBase64 } from '../utils/helpers';
-import { LoadingSpinner } from './icons';
+import { LoadingSpinner, DownloadIcon } from './icons';
 
 const ImageEditor: React.FC = () => {
     const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -64,7 +65,19 @@ const ImageEditor: React.FC = () => {
 
                     <div className="flex flex-col items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-8 h-full">
                         {isLoading && <div className="flex flex-col items-center"><LoadingSpinner/><p className="mt-2">Editando...</p></div>}
-                        {!isLoading && editedImage && <img src={editedImage} alt="Edited" className="max-w-full max-h-96 object-contain rounded-md"/>}
+                        {!isLoading && editedImage && (
+                            <div className="text-center">
+                                <img src={editedImage} alt="Edited" className="max-w-full max-h-96 object-contain rounded-md"/>
+                                <a
+                                    href={editedImage}
+                                    download="Arens_IA_editada.jpg"
+                                    className="inline-flex items-center justify-center bg-gray-700 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-200 mt-4"
+                                >
+                                    <DownloadIcon className="h-5 w-5 mr-2" />
+                                    Descargar Imagen
+                                </a>
+                            </div>
+                        )}
                         {!isLoading && !editedImage && (
                             <div className="text-center text-gray-400">
                                 <p>Tu imagen editada aparecerá aquí</p>

@@ -17,14 +17,23 @@ export enum ChatMode {
   MAPS_SEARCH = 'Búsqueda en Mapas',
 }
 
+export interface Attachment {
+  name: string;
+  type: string;
+  url: string;
+}
+
 export interface Message {
   id: string;
   sender: 'user' | 'ai';
   text: string;
   sources?: GroundingSource[];
+  attachments?: Attachment[];
+  // Los campos antiguos se mantienen para la retrocompatibilidad con el historial de localStorage
   mediaUrl?: string;
   mediaType?: string;
 }
+
 
 export interface GroundingSource {
   title: string;

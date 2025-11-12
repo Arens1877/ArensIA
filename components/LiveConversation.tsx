@@ -1,14 +1,29 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { getLiveSession } from '../services/geminiService';
 import { decode, decodeAudioData, encode } from '../utils/helpers';
-import { MicIcon } from './icons';
+import { MicIcon, TrashIcon } from './icons';
 import { LiveSession, LiveServerMessage, Modality, Blob } from '@google/genai';
+
+const availableVoices = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'] as const;
+type VoiceName = typeof availableVoices[number];
+
+const LIVE_TRANSCRIPTS_KEY = 'arens_ia_live_transcripts';
 
 const LiveConversation: React.FC = () => {
     const [isConnecting, setIsConnecting] = useState(false);
     const [isActive, setIsActive] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [transcripts, setTranscripts] = useState<{ user?: string; model?: string }[]>([]);
+    const [transcripts, setTranscripts] = useState<{ user?: string; model?: string }[]>(() => {
+        try {
+            const saved = localStorage.getItem(LIVE_TRANSCRIPTS_KEY);
+            return saved ? JSON.parse(saved) : [];
+        } catch (error) {
+            console.error("No se pudieron cargar las transcripciones desde localStorage", error);
+            return [];
+        }
+    });
+    const [selectedVoice, setSelectedVoice] = useState<VoiceName>('Zephyr');
     
     const sessionRef = useRef<LiveSession | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -20,6 +35,14 @@ const LiveConversation: React.FC = () => {
     
     const currentInputTranscriptionRef = useRef('');
     const currentOutputTranscriptionRef = useRef('');
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(LIVE_TRANSCRIPTS_KEY, JSON.stringify(transcripts));
+        } catch (error) {
+            console.error("No se pudieron guardar las transcripciones en localStorage", error);
+        }
+    }, [transcripts]);
 
     const stopConversation = useCallback(() => {
         if (sessionRef.current) {
@@ -49,8 +72,7 @@ const LiveConversation: React.FC = () => {
 
         setIsConnecting(true);
         setError(null);
-        setTranscripts([]);
-
+        
         try {
             const live = getLiveSession();
             
@@ -94,7 +116,7 @@ const LiveConversation: React.FC = () => {
                             currentInputTranscriptionRef.current = '';
                             currentOutputTranscriptionRef.current = '';
                         }
-                        const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData.data;
+                        const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                         if (base64Audio && outputAudioContextRef.current) {
                             const outputAudioContext = outputAudioContextRef.current;
                             nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputAudioContext.currentTime);
@@ -121,7 +143,7 @@ const LiveConversation: React.FC = () => {
                     responseModalities: [Modality.AUDIO],
                     inputAudioTranscription: {},
                     outputAudioTranscription: {},
-                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } }
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } } }
                 }
             });
             sessionRef.current = await sessionPromise;
@@ -137,11 +159,33 @@ const LiveConversation: React.FC = () => {
       };
     }, [stopConversation]);
 
+    const handleClearHistory = () => {
+        if (window.confirm('¿Estás seguro de que quieres borrar el historial de transcripciones?')) {
+            setTranscripts([]);
+        }
+    };
+
     return (
         <div className="p-4 md:p-8 text-white h-full flex flex-col items-center justify-center">
             <h2 className="text-3xl font-bold text-center mb-2 text-red-500">Conversación en Vivo</h2>
-            <p className="text-center text-gray-400 mb-8">Habla directamente con la IA y obtén respuestas de voz instantáneas.</p>
+            <p className="text-center text-gray-400 mb-6">Habla directamente con la IA y obtén respuestas de voz instantáneas.</p>
             
+            <div className="mb-6 w-full max-w-lg">
+                <label className="block text-sm font-medium text-gray-300 mb-2 text-center">Selecciona una Voz</label>
+                <div className="flex flex-wrap justify-center gap-2">
+                    {availableVoices.map(voice => (
+                        <button
+                            key={voice}
+                            onClick={() => setSelectedVoice(voice)}
+                            disabled={isActive || isConnecting}
+                            className={`px-4 py-2 text-sm rounded-md transition ${selectedVoice === voice ? 'bg-red-600 font-semibold' : 'bg-gray-700 hover:bg-gray-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                            {voice}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <div className="w-full max-w-2xl flex flex-col items-center">
                 <button
                     onClick={isActive ? stopConversation : startConversation}
@@ -158,15 +202,28 @@ const LiveConversation: React.FC = () => {
                 </p>
                 {error && <p className="mt-4 text-red-400">{error}</p>}
                 
-                <div className="mt-8 w-full h-64 overflow-y-auto bg-gray-800 rounded-lg p-4 space-y-2">
-                    {transcripts.map((t, i) => (
-                        <div key={i} className="text-sm">
-                            {t.user && <p><span className="font-bold text-red-400">Tú:</span> {t.user}</p>}
-                            {t.model && <p><span className="font-bold text-gray-300">IA:</span> {t.model}</p>}
-                        </div>
-                    ))}
-                     {!transcripts.length && <p className="text-gray-500 text-center">La transcripción aparecerá aquí...</p>}
+                <div className="mt-8 w-full">
+                    <div className="flex justify-between items-center mb-2 px-1">
+                        <h3 className="text-lg font-semibold">Transcripción</h3>
+                        <button
+                            onClick={handleClearHistory}
+                            className="text-gray-400 hover:text-red-500 transition-colors"
+                            aria-label="Limpiar historial"
+                            disabled={transcripts.length === 0}
+                        >
+                            <TrashIcon className="w-5 h-5" />
+                        </button>
+                    </div>
+                    <div className="h-64 overflow-y-auto bg-gray-800 rounded-lg p-4 space-y-2">
+                        {transcripts.length > 0 ? transcripts.map((t, i) => (
+                            <div key={i} className="text-sm">
+                                {t.user && <p><span className="font-bold text-red-400">Tú:</span> {t.user}</p>}
+                                {t.model && <p><span className="font-bold text-gray-300">IA:</span> {t.model}</p>}
+                            </div>
+                        )) : <p className="text-gray-500 text-center h-full flex items-center justify-center">La transcripción aparecerá aquí...</p>}
+                    </div>
                 </div>
+
             </div>
             <style jsx="true">{`
               @keyframes ping-slow {

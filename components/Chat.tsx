@@ -1,7 +1,58 @@
+// FIX: Add type definitions for the Web Speech API to resolve 'SpeechRecognition' not found error.
+interface SpeechRecognitionErrorEvent extends Event {
+    error: string;
+    message: string;
+}
+
+interface SpeechRecognitionEvent extends Event {
+    resultIndex: number;
+    results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionResultList {
+    [index: number]: SpeechRecognitionResult;
+    length: number;
+    item(index: number): SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+    isFinal: boolean;
+    [index: number]: SpeechRecognitionAlternative;
+    length: number;
+    item(index: number): SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+    transcript: string;
+    confidence: number;
+}
+
+interface SpeechRecognition extends EventTarget {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onstart: () => void;
+    onend: () => void;
+    onerror: (event: SpeechRecognitionErrorEvent) => void;
+    onresult: (event: SpeechRecognitionEvent) => void;
+    start(): void;
+    stop(): void;
+}
+
+declare var SpeechRecognition: {
+    prototype: SpeechRecognition;
+    new(): SpeechRecognition;
+};
+
+declare var webkitSpeechRecognition: {
+    prototype: SpeechRecognition;
+    new(): SpeechRecognition;
+};
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Message, ChatMode, ChatSession } from '../types';
+import { Message, ChatMode, ChatSession, Attachment } from '../types';
 import { generateChatResponse, generateSpeech } from '../services/geminiService';
-import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon } from './icons';
+import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon, FileIcon, AudioFileIcon, MicIcon, MenuIcon } from './icons';
 import { decode, decodeAudioData, fileToBase64, extractFramesFromVideo } from '../utils/helpers';
 import HistorySidebar from './HistorySidebar';
 import { Part } from '@google/genai';
@@ -17,6 +68,68 @@ const createNewSession = (mode: ChatMode = ChatMode.STANDARD): ChatSession => ({
     createdAt: Date.now(),
 });
 
+// FIX: Define props type for AttachmentPreview to correctly type the component.
+type AttachmentPreviewProps = {
+    attachment: Attachment;
+    onRemove: () => void;
+};
+
+// FIX: Explicitly type AttachmentPreview as a React.FC to correctly handle React's special `key` prop.
+const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ attachment, onRemove }) => {
+    const renderContent = () => {
+        if (attachment.type.startsWith('image/')) {
+            return <img src={attachment.url} alt={attachment.name} className="w-full h-full object-cover rounded" />;
+        }
+        if (attachment.type.startsWith('video/')) {
+            return <video src={attachment.url} className="w-full h-full object-cover rounded" />;
+        }
+        if (attachment.type.startsWith('audio/')) {
+            return <div className="w-full h-full flex flex-col items-center justify-center bg-gray-600 rounded"><AudioFileIcon className="w-8 h-8 text-gray-300" /><span className="text-xs text-center text-gray-300 mt-1 truncate px-1">{attachment.name}</span></div>;
+        }
+        return <div className="w-full h-full flex flex-col items-center justify-center bg-gray-600 rounded"><FileIcon className="w-8 h-8 text-gray-300" /><span className="text-xs text-center text-gray-300 mt-1 truncate px-1">{attachment.name}</span></div>;
+    };
+    return (
+        <div className="relative w-24 h-24 p-1 bg-gray-700 rounded-lg">
+            {renderContent()}
+            <button onClick={onRemove} className="absolute -top-2 -right-2 bg-gray-800 rounded-full text-white hover:text-red-500 transition-colors">
+                <XCircleIcon className="w-6 h-6" />
+            </button>
+        </div>
+    );
+};
+
+const MessageAttachments = ({ attachments, sender }: { attachments: Attachment[], sender: 'user' | 'ai' }) => {
+    return (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+            {attachments.map((att, index) => {
+                const sizeClass = sender === 'user' ? 'w-32 h-32' : 'w-48 h-48';
+                if (att.type.startsWith('image/')) {
+                    return <img key={index} src={att.url} alt={att.name} className={`${sizeClass} object-cover rounded-lg`} />;
+                }
+                if (att.type.startsWith('video/')) {
+                    return <video key={index} src={att.url} controls className={`${sizeClass} object-cover rounded-lg`} />;
+                }
+                if (att.type.startsWith('audio/')) {
+                    return (
+                        <div key={index} className="bg-gray-700 p-2 rounded-lg flex flex-col items-center justify-center text-center">
+                            <AudioFileIcon className="w-8 h-8 mb-2" />
+                            <span className="text-xs break-all">{att.name}</span>
+                            <audio src={att.url} controls className="w-full mt-2" />
+                        </div>
+                    );
+                }
+                return (
+                     <a key={index} href={att.url} target="_blank" rel="noopener noreferrer" className="bg-gray-700 p-2 rounded-lg flex flex-col items-center justify-center text-center hover:bg-gray-600">
+                        <FileIcon className="w-8 h-8 mb-2" />
+                        <span className="text-xs break-all">{att.name}</span>
+                    </a>
+                );
+            })}
+        </div>
+    );
+};
+
+
 const Chat: React.FC = () => {
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -24,14 +137,17 @@ const Chat: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [location, setLocation] = useState<{ latitude: number, longitude: number } | null>(null);
-    const [attachedFile, setAttachedFile] = useState<File | null>(null);
-    const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+    const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+    const [mediaPreviews, setMediaPreviews] = useState<Attachment[]>([]);
+    const [isRecording, setIsRecording] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const recognitionRef = useRef<SpeechRecognition | null>(null);
+    const baseTextRef = useRef('');
 
-    // Load sessions from localStorage on initial render
     useEffect(() => {
         try {
             const savedSessions = localStorage.getItem(CHAT_SESSIONS_KEY);
@@ -53,7 +169,6 @@ const Chat: React.FC = () => {
         }
     }, []);
 
-    // Save sessions to localStorage whenever they change
     useEffect(() => {
         if (sessions.length > 0) {
             localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
@@ -66,6 +181,54 @@ const Chat: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [activeSessionId, sessions]);
     
+    useEffect(() => {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            console.warn("El reconocimiento de voz no es compatible con este navegador.");
+            return;
+        }
+        
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'es-ES';
+
+        recognition.onstart = () => setIsRecording(true);
+        recognition.onend = () => setIsRecording(false);
+        // FIX: Add explicit type for the event parameter for better type safety.
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+            console.error('Error de reconocimiento de voz', event.error);
+            setError(`Error de reconocimiento de voz: ${event.error}`);
+            setIsRecording(false);
+        };
+
+        // FIX: Add explicit type for the event parameter for better type safety.
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript + ' ';
+                } else {
+                    interimTranscript += transcript;
+                }
+            }
+            
+            if(finalTranscript) {
+                baseTextRef.current = baseTextRef.current + finalTranscript;
+            }
+            setInput(baseTextRef.current + interimTranscript);
+        };
+
+        recognitionRef.current = recognition;
+
+        return () => {
+            recognition.stop();
+        };
+    }, []);
+
     const activeSession = sessions.find(s => s.id === activeSessionId);
 
     useEffect(() => {
@@ -79,6 +242,13 @@ const Chat: React.FC = () => {
             );
         }
     }, [activeSession?.mode, location]);
+    
+    // Cleanup object URLs
+    useEffect(() => {
+        return () => {
+            mediaPreviews.forEach(preview => URL.revokeObjectURL(preview.url));
+        }
+    }, [mediaPreviews]);
 
     const updateSession = (sessionId: string, updates: Partial<ChatSession>) => {
         setSessions(prevSessions =>
@@ -87,79 +257,105 @@ const Chat: React.FC = () => {
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-                setError('Tipo de archivo no soportado. Por favor, sube una imagen o un video.');
-                return;
-            }
-            if (file.size > 20 * 1024 * 1024) { // 20MB limit
-                setError('El archivo es demasiado grande. El límite es de 20MB.');
-                return;
-            }
-            setAttachedFile(file);
-            setMediaPreviewUrl(URL.createObjectURL(file));
+        const files = e.target.files;
+        if (files) {
+            const newFiles = Array.from(files);
+            // FIX: Explicitly type 'file' as File to resolve unknown type errors.
+            const validFiles = newFiles.filter((file: File) => {
+                 if (file.size > 20 * 1024 * 1024) { // 20MB limit
+                    setError(`El archivo ${file.name} es demasiado grande. El límite es de 20MB.`);
+                    return false;
+                }
+                return true;
+            });
+            
+            setAttachedFiles(prev => [...prev, ...validFiles]);
+            
+            // FIX: Explicitly type 'file' as File to resolve unknown type errors.
+            const newPreviews = validFiles.map((file: File) => ({
+                name: file.name,
+                type: file.type,
+                url: URL.createObjectURL(file)
+            }));
+            setMediaPreviews(prev => [...prev, ...newPreviews]);
+            
             setError(null);
         }
         e.target.value = '';
     };
 
-    const handleRemoveAttachment = () => {
-        if (mediaPreviewUrl) URL.revokeObjectURL(mediaPreviewUrl);
-        setAttachedFile(null);
-        setMediaPreviewUrl(null);
+    const handleRemoveAttachment = (indexToRemove: number) => {
+        URL.revokeObjectURL(mediaPreviews[indexToRemove].url);
+        setAttachedFiles(prev => prev.filter((_, i) => i !== indexToRemove));
+        setMediaPreviews(prev => prev.filter((_, i) => i !== indexToRemove));
+    };
+    
+    const handleToggleRecording = () => {
+        if (!recognitionRef.current) return;
+        if (isRecording) {
+            recognitionRef.current.stop();
+        } else {
+            baseTextRef.current = input;
+            recognitionRef.current.start();
+        }
     };
 
     const handleSend = async () => {
-        if ((!input.trim() && !attachedFile) || isLoading || !activeSession) return;
+        if ((!input.trim() && attachedFiles.length === 0) || isLoading || !activeSession) return;
 
-        const textToSend = input.trim();
-        const fileToSend = attachedFile;
-        const previewUrlToSend = mediaPreviewUrl;
-        
         const userMessage: Message = { 
             id: crypto.randomUUID(), 
             sender: 'user', 
-            text: textToSend,
-            mediaUrl: previewUrlToSend,
-            mediaType: fileToSend?.type
+            text: input.trim(),
+            attachments: mediaPreviews,
         };
-
+        
         const updatedMessages = [...activeSession.messages, userMessage];
         const isFirstUserMessage = activeSession.messages.filter(m => m.sender === 'user').length === 0;
-
+        
         updateSession(activeSession.id, {
              messages: updatedMessages,
-             ...(isFirstUserMessage && { title: (textToSend || "Análisis de Medios").substring(0, 40) })
+             ...(isFirstUserMessage && { title: (input.trim() || "Análisis de Medios").substring(0, 40) })
         });
         
+        const filesToSend = [...attachedFiles];
         setInput('');
-        handleRemoveAttachment();
+        setAttachedFiles([]);
+        setMediaPreviews([]);
         setIsLoading(true);
         setError(null);
-
+        
         try {
-            let mediaParts: Part[] | undefined = undefined;
-
-            if (fileToSend) {
-                if (fileToSend.type.startsWith('image/')) {
-                    const base64Data = await fileToBase64(fileToSend);
-                    mediaParts = [{ inlineData: { data: base64Data, mimeType: fileToSend.type } }];
-                } else if (fileToSend.type.startsWith('video/')) {
-                    const frames = await extractFramesFromVideo(fileToSend, 1); // 1 FPS
+            let mediaParts: Part[] = [];
+            for (const file of filesToSend) {
+                if (file.type.startsWith('video/')) {
+                    const frames = await extractFramesFromVideo(file, 1);
                     if (frames.length > 0) {
-                        mediaParts = frames.map(frame => ({ inlineData: { data: frame, mimeType: 'image/jpeg' } }));
-                    } else {
-                        throw new Error("No se pudieron extraer fotogramas del video.");
+                        mediaParts.push(...frames.map(frame => ({ inlineData: { data: frame, mimeType: 'image/jpeg' } })));
                     }
+                } else {
+                    const base64Data = await fileToBase64(file);
+                    mediaParts.push({ inlineData: { data: base64Data, mimeType: file.type } });
                 }
             }
 
-            const response = await generateChatResponse(textToSend, activeSession.history, activeSession.mode, location, mediaParts);
-            const aiMessage: Message = { id: crypto.randomUUID(), sender: 'ai', text: response.text, sources: response.sources };
+            const { text, sources, mediaUrl, mediaType, historyParts } = await generateChatResponse(userMessage.text, activeSession.history, activeSession.mode, location, mediaParts);
             
-            const userTurnParts: Part[] = [{ text: textToSend }];
-            if (mediaParts) {
+            const aiAttachments: Attachment[] = [];
+            if (mediaUrl && mediaType) {
+                aiAttachments.push({ name: 'Generated Content', type: mediaType, url: mediaUrl });
+            }
+
+            const aiMessage: Message = { 
+                id: crypto.randomUUID(), 
+                sender: 'ai', 
+                text, 
+                sources,
+                attachments: aiAttachments,
+            };
+            
+            const userTurnParts: Part[] = [{ text: userMessage.text }];
+            if (mediaParts.length > 0) {
                 userTurnParts.push(...mediaParts);
             }
 
@@ -168,7 +364,7 @@ const Chat: React.FC = () => {
                 history: [
                     ...activeSession.history,
                     { role: 'user', parts: userTurnParts },
-                    { role: 'model', parts: [{ text: response.text }] },
+                    { role: 'model', parts: historyParts },
                 ],
             });
         } catch (err) {
@@ -227,17 +423,42 @@ const Chat: React.FC = () => {
     const sortedSessions = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
 
     return (
-        <div className="flex h-full bg-gray-900 text-white">
-            <HistorySidebar sessions={sortedSessions} activeSessionId={activeSessionId} onNewChat={handleNewChat} onSelectChat={setActiveSessionId} onDeleteChat={handleDeleteChat} />
-            <div className="flex-1 flex flex-col">
+        <div className="flex h-full bg-gray-900 text-white relative overflow-hidden">
+            {isSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/60 z-30 md:hidden"
+                    onClick={() => setIsSidebarOpen(false)}
+                    aria-hidden="true"
+                ></div>
+            )}
+            <HistorySidebar
+                sessions={sortedSessions}
+                activeSessionId={activeSessionId}
+                onNewChat={handleNewChat}
+                onSelectChat={setActiveSessionId}
+                onDeleteChat={handleDeleteChat}
+                isOpen={isSidebarOpen}
+                onClose={() => setIsSidebarOpen(false)}
+            />
+            <div className="flex-1 flex flex-col min-w-0">
                 <div className="p-4 border-b border-gray-700 bg-gray-800">
-                    <div className="flex items-center justify-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-gray-300 mr-2">Modo:</span>
-                        {Object.values(ChatMode).map(m => (
-                            <button key={m} onClick={() => handleModeChange(m)} className={`px-3 py-1 text-xs rounded-full transition ${activeSession?.mode === m ? 'bg-red-600 text-white font-semibold' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-                                {m}
-                            </button>
-                        ))}
+                    <div className="flex items-center justify-between">
+                        <button
+                            className="p-2 rounded-md text-gray-300 hover:bg-gray-700 md:hidden"
+                            onClick={() => setIsSidebarOpen(true)}
+                            aria-label="Abrir historial de chats"
+                        >
+                            <MenuIcon className="h-6 w-6" />
+                        </button>
+                        <div className="flex items-center justify-center gap-2 flex-wrap flex-1">
+                            <span className="text-sm font-medium text-gray-300 mr-2 hidden sm:inline">Modo:</span>
+                            {Object.values(ChatMode).map(m => (
+                                <button key={m} onClick={() => handleModeChange(m)} className={`px-3 py-1 text-xs rounded-full transition ${activeSession?.mode === m ? 'bg-red-600 text-white font-semibold' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                                    {m}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="w-10 md:hidden" aria-hidden="true"></div>
                     </div>
                 </div>
                 <div className="flex-1 p-4 overflow-y-auto">
@@ -245,16 +466,20 @@ const Chat: React.FC = () => {
                         {activeSession?.messages.map((msg) => (
                             <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-lg lg:max-w-2xl px-4 py-2 rounded-lg ${msg.sender === 'user' ? 'bg-red-600' : 'bg-gray-800'}`}>
-                                    {msg.mediaUrl && (
+                                    {(msg.attachments && msg.attachments.length > 0) && (
+                                        <MessageAttachments attachments={msg.attachments} sender={msg.sender}/>
+                                    )}
+                                    {/* For backward compatibility */}
+                                    {msg.mediaUrl && (!msg.attachments || msg.attachments.length === 0) && (
                                         <div className="mb-2">
                                             {msg.mediaType?.startsWith('image/') ? (
-                                                <img src={msg.mediaUrl} alt="Adjunto de usuario" className="rounded-lg max-h-48 w-auto" />
+                                                <img src={msg.mediaUrl} alt="Media" className="rounded-lg max-h-96" />
                                             ) : (
-                                                <video src={msg.mediaUrl} controls className="rounded-lg max-h-48 w-auto" />
+                                                <video src={msg.mediaUrl} controls className="rounded-lg max-h-96" />
                                             )}
                                         </div>
                                     )}
-                                    {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
+                                    {msg.text && <p className="whitespace-pre-wrap mt-2">{msg.text}</p>}
                                     {msg.sender === 'ai' && msg.text && (
                                         <div className="mt-2 flex items-center justify-between">
                                             <button onClick={() => playTTS(msg.text)} className="text-gray-400 hover:text-white transition" aria-label="Escuchar mensaje"><SoundIcon className="h-5 w-5"/></button>
@@ -276,33 +501,35 @@ const Chat: React.FC = () => {
                 </div>
                 {error && <div className="p-4 text-center text-red-400 bg-red-900/50">{error}</div>}
                 <div className="p-4 border-t border-gray-700 bg-gray-800">
-                    {mediaPreviewUrl && (
-                        <div className="relative w-24 h-24 mb-2 p-1 bg-gray-700 rounded-lg">
-                            {attachedFile?.type.startsWith('image/') ? (
-                                <img src={mediaPreviewUrl} alt="Preview" className="w-full h-full object-cover rounded" />
-                            ) : (
-                                <video src={mediaPreviewUrl} className="w-full h-full object-cover rounded" />
-                            )}
-                            <button onClick={handleRemoveAttachment} className="absolute -top-2 -right-2 bg-gray-800 rounded-full text-white hover:text-red-500 transition-colors">
-                                <XCircleIcon className="w-6 h-6" />
-                            </button>
+                    {mediaPreviews.length > 0 && (
+                        <div className="mb-2 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-8 gap-2">
+                            {mediaPreviews.map((preview, index) => (
+                                <AttachmentPreview 
+                                    key={index}
+                                    attachment={preview}
+                                    onRemove={() => handleRemoveAttachment(index)}
+                                />
+                            ))}
                         </div>
                     )}
                     <div className="relative flex items-center">
-                        <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*,audio/*,.pdf,.txt,.csv,.md" multiple className="hidden" />
                         <button onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-white transition rounded-full hover:bg-gray-700" aria-label="Adjuntar archivo">
                             <PaperclipIcon className="w-6 h-6" />
                         </button>
-                        <input
-                            type="text"
+                         <button onClick={handleToggleRecording} className={`p-3 text-gray-400 hover:text-white transition rounded-full hover:bg-gray-700 ${isRecording ? 'animate-pulse' : ''}`} aria-label="Usar micrófono">
+                            <MicIcon className={`w-6 h-6 ${isRecording ? 'text-red-500' : ''}`} />
+                        </button>
+                        <textarea
+                            rows={1}
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                            placeholder="Escribe un mensaje o adjunta un archivo..."
-                            className="w-full bg-gray-700 text-white rounded-full py-3 pl-4 pr-16 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                            placeholder="Escribe un mensaje o adjunta archivos..."
+                            className="w-full bg-gray-700 text-white rounded-2xl py-3 pl-4 pr-16 focus:outline-none focus:ring-2 focus:ring-red-500 resize-none max-h-40"
                             disabled={isLoading}
                         />
-                        <button onClick={handleSend} disabled={isLoading || (!input.trim() && !attachedFile)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 disabled:bg-gray-500 transition">
+                        <button onClick={handleSend} disabled={isLoading || (!input.trim() && attachedFiles.length === 0)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 disabled:bg-gray-500 transition">
                             {isLoading ? <LoadingSpinner /> : <SendIcon className="h-5 w-5" />}
                         </button>
                     </div>

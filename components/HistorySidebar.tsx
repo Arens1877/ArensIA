@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChatSession } from '../types';
-import { PlusIcon, TrashIcon } from './icons';
+import { PlusIcon, TrashIcon, XIcon } from './icons';
 
 interface HistorySidebarProps {
     sessions: ChatSession[];
@@ -8,9 +8,11 @@ interface HistorySidebarProps {
     onNewChat: () => void;
     onSelectChat: (id: string) => void;
     onDeleteChat: (id: string) => void;
+    isOpen: boolean;
+    onClose: () => void;
 }
 
-const HistorySidebar: React.FC<HistorySidebarProps> = ({ sessions, activeSessionId, onNewChat, onSelectChat, onDeleteChat }) => {
+const HistorySidebar: React.FC<HistorySidebarProps> = ({ sessions, activeSessionId, onNewChat, onSelectChat, onDeleteChat, isOpen, onClose }) => {
 
     const handleDelete = (e: React.MouseEvent, id: string) => {
         e.stopPropagation(); // Prevent onSelectChat from firing
@@ -19,11 +21,34 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({ sessions, activeSession
         }
     };
 
+    const handleSelect = (id: string) => {
+        onSelectChat(id);
+        onClose();
+    };
+    
+    const handleNew = () => {
+        onNewChat();
+        onClose();
+    };
+
+    const sidebarClasses = `
+        w-64 bg-gray-800 flex flex-col h-full border-r border-gray-700 
+        md:static md:translate-x-0 
+        fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out
+        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+    `;
+
     return (
-        <div className="w-64 bg-gray-800 flex-col h-full border-r border-gray-700 hidden md:flex">
+        <div className={sidebarClasses}>
+            <div className="flex justify-between items-center p-4 border-b border-gray-700">
+                <h2 className="text-lg font-semibold text-white">Historial</h2>
+                <button onClick={onClose} className="text-gray-400 hover:text-white md:hidden" aria-label="Cerrar menú">
+                    <XIcon className="h-6 w-6" />
+                </button>
+            </div>
             <div className="p-4 border-b border-gray-700">
                 <button
-                    onClick={onNewChat}
+                    onClick={handleNew}
                     className="w-full flex items-center justify-center bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition duration-200"
                 >
                     <PlusIcon className="h-5 w-5 mr-2" />
@@ -35,7 +60,7 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({ sessions, activeSession
                     {sessions.map(session => (
                         <div
                             key={session.id}
-                            onClick={() => onSelectChat(session.id)}
+                            onClick={() => handleSelect(session.id)}
                             className={`group flex items-center justify-between w-full text-left px-3 py-2 text-sm rounded-md cursor-pointer transition-colors duration-150 ${
                                 activeSessionId === session.id
                                     ? 'bg-gray-700 text-white'

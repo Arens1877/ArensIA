@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { generateImage } from '../services/geminiService';
-import { LoadingSpinner } from './icons';
+import { LoadingSpinner, DownloadIcon } from './icons';
 import { AspectRatio } from '../types';
 
 const ImageGenerator: React.FC = () => {
@@ -74,6 +75,16 @@ const ImageGenerator: React.FC = () => {
                         <h3 className="text-xl font-semibold mb-4 text-center">Resultado</h3>
                         <div className="bg-gray-800 p-2 rounded-lg">
                             <img src={generatedImage} alt="Generated" className="w-full max-w-lg mx-auto h-auto object-contain rounded-md" />
+                        </div>
+                        <div className="text-center mt-4">
+                            <a
+                                href={generatedImage}
+                                download="Arens_IA_generada.jpg"
+                                className="inline-flex items-center justify-center bg-gray-700 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-200"
+                            >
+                                <DownloadIcon className="h-5 w-5 mr-2" />
+                                Descargar Imagen
+                            </a>
                         </div>
                     </div>
                 )}

@@ -32,7 +32,7 @@ export const generateChatResponse = async (
     mode: ChatMode,
     location: { latitude: number, longitude: number } | null,
     mediaParts?: Part[]
-): Promise<{ text: string, sources: GroundingSource[] }> => {
+): Promise<{ text: string, sources: GroundingSource[], mediaUrl?: string, mediaType?: string, historyParts: Part[] }> => {
     const ai = getAi();
     let modelName: string;
     let config: any = {};
@@ -59,13 +59,13 @@ export const generateChatResponse = async (
             break;
         case ChatMode.STANDARD:
         default:
-            modelName = 'gemini-2.5-flash';
+            modelName = 'gemini-2.5-pro'; // Modelo mejorado para capacidades multimodales
             break;
     }
 
-    // Forzar gemini-2.5-pro si se detectan fotogramas de video para un mejor análisis
-    const hasVideoFrames = mediaParts && mediaParts.length > 1 && mediaParts.every(p => p.inlineData?.mimeType === 'image/jpeg');
-    if (hasVideoFrames) {
+    // Forzar gemini-2.5-pro para cualquier entrada multimodal para un mejor análisis
+    const hasMedia = mediaParts && mediaParts.length > 0;
+    if (hasMedia) {
         modelName = 'gemini-2.5-pro';
     }
 
@@ -75,12 +75,24 @@ export const generateChatResponse = async (
     }
 
     const chat = ai.chats.create({ model: modelName, history, config, toolConfig });
-    const response = await chat.sendMessage(userMessageContent);
+    const response: GenerateContentResponse = await chat.sendMessage({ message: userMessageContent });
     
-    const text = response.text;
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    const textPart = parts.find(p => 'text' in p);
+    const text = textPart ? (textPart as { text: string }).text : '';
+
+    const mediaPart = parts.find(p => 'inlineData' in p && p.inlineData);
+    let mediaUrl: string | undefined = undefined;
+    let mediaType: string | undefined = undefined;
+
+    if (mediaPart && 'inlineData' in mediaPart && mediaPart.inlineData) {
+        mediaUrl = `data:${mediaPart.inlineData.mimeType};base64,${mediaPart.inlineData.data}`;
+        mediaType = mediaPart.inlineData.mimeType;
+    }
+    
     const sources = extractSources(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
 
-    return { text, sources };
+    return { text, sources, mediaUrl, mediaType, historyParts: parts };
 };
 
 export const generateImage = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
@@ -106,7 +118,8 @@ export const editImage = async (base64Image: string, mimeType: string, prompt: s
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
-        contents: { parts: [imagePart, textPart] },
+        // Se corrigió el orden: el texto de la instrucción debe ir antes que la imagen.
+        contents: { parts: [textPart, imagePart] },
         config: { responseModalities: [Modality.IMAGE] },
     });
     

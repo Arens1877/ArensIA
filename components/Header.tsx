@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Tab } from '../types';
-import { ChatIcon, EditIcon, ImageIcon, MicIcon, VisionIcon, VideoIcon } from './icons';
+import { ChatIcon, EditIcon, ImageIcon, MicIcon, VisionIcon, VideoIcon, YouTubeIcon } from './icons';
 
 interface HeaderProps {
   activeTab: Tab;
@@ -39,6 +39,16 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               <span className="hidden md:inline">{tab.id}</span>
             </button>
           ))}
+          <a
+            href="https://youtube.com/@arens1877"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Canal de YouTube del creador"
+            className="flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            <YouTubeIcon className="h-5 w-5 mr-2" />
+            <span className="hidden md:inline">Canal de YouTube</span>
+          </a>
         </nav>
       </div>
     </header>
