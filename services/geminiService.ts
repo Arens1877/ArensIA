@@ -99,7 +99,7 @@ export const generateChatResponse = async (
     return { text, sources, mediaUrl, mediaType, historyParts: parts };
 };
 
-// Agrega control de errores si falta el array o el objeto esperado
+// GENERACIÓN DE IMÁGENES
 export const generateImage = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
     const genai = getAi();
     const response = await genai.models.generateImages({
@@ -111,11 +111,18 @@ export const generateImage = async (prompt: string, aspectRatio: AspectRatio): P
             aspectRatio,
         },
     });
-    const base64ImageBytes: string | undefined = response.generatedImages?.[0]?.image?.imageBytes;
-    if (!base64ImageBytes) throw new Error("No se pudo generar la imagen.");
+
+    // Compatibilidad con diferentes respuestas de SDK/API
+    let base64ImageBytes: string | undefined = undefined;
+    if (response.generatedImages && response.generatedImages[0]) {
+        base64ImageBytes = response.generatedImages[0].imageBytes || response.generatedImages[0].image?.imageBytes;
+    }
+
+    if (!base64ImageBytes) throw new Error("No se pudo generar la imagen. Respuesta inesperada.");
     return `data:image/jpeg;base64,${base64ImageBytes}`;
 };
 
+// EDICIÓN DE IMÁGENES
 export const editImage = async (base64Image: string, mimeType: string, prompt: string): Promise<string> => {
     const genai = getAi();
     const imagePart = { inlineData: { data: base64Image, mimeType } };
@@ -123,15 +130,25 @@ export const editImage = async (base64Image: string, mimeType: string, prompt: s
 
     const response = await genai.models.generateContent({
         model: "gemini-2.5-flash-image",
-        contents: { parts: [textPart, imagePart] },
+        contents: [{ parts: [textPart, imagePart] }],
         config: { responseModalities: [Modality.IMAGE] },
     });
 
-    const part = response.candidates?.[0]?.content?.parts?.[0];
-    if (part && part.inlineData) {
+    // Buscar el primer candidato y parte que tenga una imagen con inlineData
+    const candidates = response.candidates || [];
+    let part;
+    for (const candidate of candidates) {
+        if (!candidate.content || !candidate.content.parts) continue;
+        part = candidate.content.parts.find(
+            (p: any) => p.inlineData && p.inlineData.mimeType && p.inlineData.mimeType.startsWith("image/")
+        );
+        if (part) break;
+    }
+
+    if (part && part.inlineData && part.inlineData.data) {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
     }
-    throw new Error("No se pudo editar la imagen.");
+    throw new Error("No se pudo editar la imagen. Estructura inesperada en la respuesta.");
 };
 
 export const analyzeMedia = async (base64Media: string | string[], mimeType: string, prompt: string): Promise<string> => {
@@ -149,7 +166,7 @@ export const analyzeMedia = async (base64Media: string | string[], mimeType: str
 
     const response = await genai.models.generateContent({
         model,
-        contents: { parts },
+        contents: [{ parts }],
     });
     return response.text || "";
 };
