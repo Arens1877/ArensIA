@@ -1,13 +1,31 @@
-import { GoogleGenAI, GenerateContentResponse, Type, Modality, Content, Part, GroundingChunk } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Modality, Content, Part, GroundingChunk } from "@google/genai";
 import { ChatMode, AspectRatio, GroundingSource, VideoAspectRatio } from '../types';
 
 let ai: GoogleGenAI | null = null;
+
+const getApiKey = (): string => {
+    // Intentar process.env (Node / entorno servidor)
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+        return process.env.API_KEY;
+    }
+
+    // Intentar import.meta.env (Vite / frontend). Usamos try/catch por seguridad en entornos donde import.meta no esté definido.
+    try {
+        // Evitar errores de tipos en TS: import.meta puede no tener el tipo esperado
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const viteKey = (import.meta as any)?.env?.VITE_API_KEY;
+        if (viteKey) return viteKey;
+    } catch (e) {
+        // no-op: import.meta no disponible
+    }
+
+    throw new Error("La variable de entorno API_KEY no está configurada. Establece API_KEY (servidor) o VITE_API_KEY (cliente/Vite).");
+};
+
 const getAi = () => {
     if (!ai) {
-        if (!process.env.API_KEY) {
-            throw new Error("La variable de entorno API_KEY no está configurada");
-        }
-        ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
+        const key = getApiKey();
+        ai = new GoogleGenAI({ apiKey: key });
     }
     return ai;
 };
@@ -36,7 +54,7 @@ export const generateChatResponse = async (
     const ai = getAi();
     let modelName: string;
     let config: any = {
-        systemInstruction: "Eres Arens IA, un asistente de IA amigable y servicial. Responde de manera concisa y útil. Incorpora emojis relevantes de forma natural en tus respuestas para que la conversación sea más amena. 😊"
+        systemInstruction: "Eres Arens IA, un asistente de IA amigable y servicial. Responde de manera concisa y útil. Incorpora emojis relevantes de forma natural en tus respuestas para que la conversación sea más amena."
     };
     let toolConfig: any = {};
 
@@ -66,15 +84,14 @@ export const generateChatResponse = async (
             break;
         case ChatMode.CANVAS:
             modelName = 'gemini-2.5-pro';
-            config.systemInstruction = "Eres un asistente de codificación experto. Tu tarea es generar código HTML, CSS y JavaScript autónomo basado en la solicitud del usuario. La respuesta DEBE ser un único bloque de código markdown de tipo 'html' que contenga un documento HTML completo y funcional. El código no debe depender de recursos externos. Este código se renderizará directamente en una vista previa. No incluyas ningún otro texto explicativo fuera del bloque de código.";
+            config.systemInstruction = "Eres un asistente de codificación experto. Tu tarea es generar código HTML, CSS y JavaScript autónomo basado en la solicitud del usuario. La respuesta DEBE ser código funcional y completo sin explicaciones adicionales.";
             break;
         case ChatMode.STANDARD:
         default:
-            modelName = 'gemini-2.5-pro'; // Modelo mejorado para capacidades multimodales
+            modelName = 'gemini-2.5-pro';
             break;
     }
 
-    // Forzar gemini-2.5-pro para cualquier entrada multimodal para un mejor análisis
     const hasMedia = mediaParts && mediaParts.length > 0;
     if (hasMedia) {
         modelName = 'gemini-2.5-pro';
@@ -89,21 +106,24 @@ export const generateChatResponse = async (
     const response: GenerateContentResponse = await chat.sendMessage({ message: userMessageContent });
     
     const parts = response.candidates?.[0]?.content?.parts || [];
-    const textPart = parts.find(p => 'text' in p);
+    const textPart = parts.find(p => typeof (p as any).text === 'string');
     const text = textPart ? (textPart as { text: string }).text : '';
 
-    const mediaPart = parts.find(p => 'inlineData' in p && p.inlineData);
+    const mediaPart = parts.find(p => 'inlineData' in p && (p as any).inlineData);
     let mediaUrl: string | undefined = undefined;
     let mediaType: string | undefined = undefined;
 
-    if (mediaPart && 'inlineData' in mediaPart && mediaPart.inlineData) {
-        mediaUrl = `data:${mediaPart.inlineData.mimeType};base64,${mediaPart.inlineData.data}`;
-        mediaType = mediaPart.inlineData.mimeType;
+    if (mediaPart && 'inlineData' in mediaPart && (mediaPart as any).inlineData) {
+        const inline = (mediaPart as any).inlineData;
+        if (inline.data && inline.mimeType) {
+            mediaUrl = `data:${inline.mimeType};base64,${inline.data}`;
+            mediaType = inline.mimeType;
+        }
     }
     
     const sources = extractSources(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
 
-    return { text, sources, mediaUrl, mediaType, historyParts: parts };
+    return { text, sources, mediaUrl, mediaType, historyParts: parts as Part[] };
 };
 
 export const generateImage = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
@@ -117,7 +137,10 @@ export const generateImage = async (prompt: string, aspectRatio: AspectRatio): P
             aspectRatio,
         },
     });
-    const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
+    const base64ImageBytes: string = response.generatedImages?.[0]?.image?.imageBytes;
+    if (!base64ImageBytes) {
+        throw new Error("No se pudo generar la imagen.");
+    }
     return `data:image/jpeg;base64,${base64ImageBytes}`;
 };
 
@@ -129,14 +152,14 @@ export const editImage = async (base64Image: string, mimeType: string, prompt: s
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
-        // Se corrigió el orden: el texto de la instrucción debe ir antes que la imagen.
         contents: { parts: [textPart, imagePart] },
         config: { responseModalities: [Modality.IMAGE] },
     });
     
-    const part = response.candidates?.[0]?.content?.parts[0];
-    if (part && part.inlineData) {
-        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+    const part = response.candidates?.[0]?.content?.parts?.find(p => (p as any).inlineData);
+    if (part && (part as any).inlineData) {
+        const inline = (part as any).inlineData;
+        return `data:${inline.mimeType};base64,${inline.data}`;
     }
     throw new Error("No se pudo editar la imagen.");
 };
@@ -158,14 +181,19 @@ export const analyzeMedia = async (base64Media: string | string[], mimeType: str
         model,
         contents: { parts },
     });
-    return response.text;
+
+    const partsResp = response.candidates?.[0]?.content?.parts || [];
+    const textPart = partsResp.find(p => typeof (p as any).text === 'string');
+    const text = textPart ? (textPart as { text: string }).text : '';
+
+    return text;
 };
 
 export const generateSpeech = async (text: string): Promise<string> => {
     const ai = getAi();
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text }] }],
+        contents: { parts: [{ text }] },
         config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
@@ -192,13 +220,11 @@ export const generateVideo = async (
     mimeType: string,
     aspectRatio: VideoAspectRatio
 ): Promise<string> => {
-    // Crea una nueva instancia para Veo para asegurar que se use la clave de API más reciente
-    if (!process.env.API_KEY) {
-        throw new Error("La variable de entorno API_KEY no está configurada");
-    }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Usar getApiKey para consistencia
+    const key = getApiKey();
+    const ai = new GoogleGenAI({ apiKey: key });
     
-    let operation = await ai.models.generateVideos({
+    let operation: any = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
         prompt: prompt,
         image: {
@@ -212,17 +238,27 @@ export const generateVideo = async (
         }
     });
 
-    while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, 10000)); // Sondear cada 10 segundos
-        operation = await ai.operations.getVideosOperation({ operation: operation });
+    let opName = (operation && operation.name) ? operation.name : null;
+    let maxAttempts = 60;
+    while ((!operation.done) && maxAttempts > 0) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        if (opName) {
+            operation = await ai.operations.getVideosOperation({ name: opName });
+        } else {
+            opName = (operation && operation.name) ? operation.name : opName;
+        }
+        maxAttempts--;
     }
 
-    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri || operation.response?.generatedVideos?.[0]?.uri;
     if (!downloadLink) {
         throw new Error("No se pudo obtener el enlace de descarga del video.");
     }
 
-    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+    const sep = downloadLink.includes('?') ? '&' : '?';
+    const finalUrl = `${downloadLink}${sep}key=${encodeURIComponent(key)}`;
+
+    const response = await fetch(finalUrl);
     if (!response.ok) {
         const errorBody = await response.text();
         console.error("Error al descargar video:", errorBody);
@@ -230,5 +266,18 @@ export const generateVideo = async (
     }
 
     const videoBlob = await response.blob();
-    return URL.createObjectURL(videoBlob);
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        return URL.createObjectURL(videoBlob);
+    }
+
+    const arrayBuffer = await videoBlob.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(arrayBuffer);
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, Array.from(chunk) as any);
+    }
+    const base64 = typeof btoa === 'function' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
+    return `data:${videoBlob.type || 'video/mp4'};base64,${base64}`;
 };
