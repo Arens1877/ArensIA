@@ -52,10 +52,11 @@ declare var webkitSpeechRecognition: {
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Message, ChatMode, ChatSession, Attachment } from '../types';
 import { generateChatResponse, generateSpeech } from '../services/geminiService';
-import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon, FileIcon, AudioFileIcon, MicIcon, MenuIcon } from './icons';
+import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon, FileIcon, AudioFileIcon, MicIcon, MenuIcon, CanvasIcon, CopyIcon, PauseIcon } from './icons';
 import { decode, decodeAudioData, fileToBase64, extractFramesFromVideo } from '../utils/helpers';
 import HistorySidebar from './HistorySidebar';
 import { Part } from '@google/genai';
+import CanvasRenderer from './CanvasRenderer';
 
 const CHAT_SESSIONS_KEY = 'arens_ia_chat_sessions';
 
@@ -141,12 +142,19 @@ const Chat: React.FC = () => {
     const [mediaPreviews, setMediaPreviews] = useState<Attachment[]>([]);
     const [isRecording, setIsRecording] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [ttsState, setTtsState] = useState<{ messageId: string | null; status: 'PLAYING' | 'PAUSED' | 'LOADING' | 'STOPPED' }>({ messageId: null, status: 'STOPPED' });
     
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const audioContextRef = useRef<AudioContext | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const recognitionRef = useRef<SpeechRecognition | null>(null);
     const baseTextRef = useRef('');
+
+    // Refs for TTS
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const ttsAudioBufferRef = useRef<AudioBuffer | null>(null);
+    const ttsSourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+    const ttsPlaybackOffsetRef = useRef(0);
+    const ttsStartTimeRef = useRef(0);
 
     useEffect(() => {
         try {
@@ -379,20 +387,84 @@ const Chat: React.FC = () => {
         }
     };
     
-    const playTTS = useCallback(async (text: string) => {
-        try {
-            if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-            const audioContext = audioContextRef.current;
-            const base64Audio = await generateSpeech(text);
-            const audioBuffer = await decodeAudioData(decode(base64Audio), audioContext, 24000, 1);
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
-            source.start();
-        } catch(err) {
-            setError(err instanceof Error ? `Error de TTS: ${err.message}` : 'Ocurrió un error de TTS desconocido.');
-        }
+    const handleTtsEnd = useCallback(() => {
+        setTtsState({ messageId: null, status: 'STOPPED' });
+        ttsPlaybackOffsetRef.current = 0;
+        ttsAudioBufferRef.current = null;
+        ttsSourceNodeRef.current = null;
     }, []);
+
+    const playAudio = useCallback((buffer: AudioBuffer, offset: number) => {
+        if (!audioContextRef.current) return;
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContextRef.current.destination);
+        source.onended = handleTtsEnd;
+        source.start(0, offset);
+
+        ttsSourceNodeRef.current = source;
+        ttsStartTimeRef.current = audioContextRef.current.currentTime;
+    }, [handleTtsEnd]);
+
+    const handleTtsToggle = useCallback(async (messageId: string, text: string) => {
+        if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        }
+        const audioContext = audioContextRef.current;
+
+        // Case 1: PAUSE
+        if (ttsState.messageId === messageId && ttsState.status === 'PLAYING') {
+            if (ttsSourceNodeRef.current) {
+                ttsSourceNodeRef.current.onended = null;
+                ttsSourceNodeRef.current.stop();
+                ttsSourceNodeRef.current = null;
+
+                const elapsed = audioContext.currentTime - ttsStartTimeRef.current;
+                ttsPlaybackOffsetRef.current += elapsed;
+            }
+            setTtsState({ messageId, status: 'PAUSED' });
+            return;
+        }
+
+        // Stop any currently playing sound if we're starting a new one
+        if (ttsState.status === 'PLAYING' && ttsState.messageId !== messageId) {
+            if (ttsSourceNodeRef.current) {
+                ttsSourceNodeRef.current.onended = null;
+                ttsSourceNodeRef.current.stop();
+                ttsSourceNodeRef.current = null;
+            }
+        }
+
+        // Case 2: RESUME
+        if (ttsState.messageId === messageId && ttsState.status === 'PAUSED') {
+            if (ttsAudioBufferRef.current) {
+                playAudio(ttsAudioBufferRef.current, ttsPlaybackOffsetRef.current);
+                setTtsState({ messageId, status: 'PLAYING' });
+            }
+            return;
+        }
+
+        // Case 3: PLAY NEW
+        if (ttsState.messageId !== messageId) {
+            ttsPlaybackOffsetRef.current = 0;
+            ttsAudioBufferRef.current = null;
+        }
+        
+        setTtsState({ messageId, status: 'LOADING' });
+        try {
+            let buffer = ttsAudioBufferRef.current;
+            if (!buffer) {
+                const base64Audio = await generateSpeech(text);
+                buffer = await decodeAudioData(decode(base64Audio), audioContext, 24000, 1);
+                ttsAudioBufferRef.current = buffer;
+            }
+            playAudio(buffer, ttsPlaybackOffsetRef.current);
+            setTtsState({ messageId, status: 'PLAYING' });
+        } catch (err) {
+            setError(err instanceof Error ? `Error de TTS: ${err.message}` : 'Ocurrió un error de TTS desconocido.');
+            handleTtsEnd();
+        }
+    }, [ttsState, playAudio, handleTtsEnd]);
 
     const handleModeChange = (newMode: ChatMode) => {
         if (!activeSession || activeSession.mode === newMode) return;
@@ -421,6 +493,32 @@ const Chat: React.FC = () => {
     };
 
     const sortedSessions = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
+    
+    const handleCopyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text).catch(err => console.error('Error al copiar texto: ', err));
+    };
+
+    const renderMessageContent = (msg: Message) => {
+        const codeBlockRegex = /```html\n([\s\S]*?)\n```/;
+        const isCanvasMode = activeSession?.mode === ChatMode.CANVAS && msg.sender === 'ai';
+        const match = isCanvasMode ? msg.text.match(codeBlockRegex) : null;
+
+        if (match) {
+            const code = match[1];
+            const parts = msg.text.split(match[0]);
+            const leadingText = parts[0];
+            const trailingText = parts[1];
+            return (
+                <>
+                    {leadingText && <p className="whitespace-pre-wrap">{leadingText}</p>}
+                    <CanvasRenderer code={code} />
+                    {trailingText && <p className="whitespace-pre-wrap mt-2">{trailingText}</p>}
+                </>
+            );
+        }
+        
+        return <p className="whitespace-pre-wrap">{msg.text}</p>;
+    };
 
     return (
         <div className="flex h-full bg-gray-900 text-white relative overflow-hidden">
@@ -452,11 +550,18 @@ const Chat: React.FC = () => {
                         </button>
                         <div className="flex items-center justify-center gap-2 flex-wrap flex-1">
                             <span className="text-sm font-medium text-gray-300 mr-2 hidden sm:inline">Modo:</span>
-                            {Object.values(ChatMode).map(m => (
-                                <button key={m} onClick={() => handleModeChange(m)} className={`px-3 py-1 text-xs rounded-full transition ${activeSession?.mode === m ? 'bg-red-600 text-white font-semibold' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                             {Object.values(ChatMode).map(m => {
+                                const icons: { [key in ChatMode]?: React.ElementType } = {
+                                    [ChatMode.CANVAS]: CanvasIcon,
+                                };
+                                const Icon = icons[m];
+                                return (
+                                <button key={m} onClick={() => handleModeChange(m)} className={`px-3 py-1 text-xs rounded-full transition flex items-center ${activeSession?.mode === m ? 'bg-red-600 text-white font-semibold' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                                    {Icon && <Icon className="w-4 h-4 mr-1.5" />}
                                     {m}
                                 </button>
-                            ))}
+                                );
+                            })}
                         </div>
                         <div className="w-10 md:hidden" aria-hidden="true"></div>
                     </div>
@@ -465,33 +570,56 @@ const Chat: React.FC = () => {
                     <div className="space-y-4">
                         {activeSession?.messages.map((msg) => (
                             <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-lg lg:max-w-2xl px-4 py-2 rounded-lg ${msg.sender === 'user' ? 'bg-red-600' : 'bg-gray-800'}`}>
-                                    {(msg.attachments && msg.attachments.length > 0) && (
-                                        <MessageAttachments attachments={msg.attachments} sender={msg.sender}/>
-                                    )}
-                                    {/* For backward compatibility */}
-                                    {msg.mediaUrl && (!msg.attachments || msg.attachments.length === 0) && (
-                                        <div className="mb-2">
-                                            {msg.mediaType?.startsWith('image/') ? (
-                                                <img src={msg.mediaUrl} alt="Media" className="rounded-lg max-h-96" />
-                                            ) : (
-                                                <video src={msg.mediaUrl} controls className="rounded-lg max-h-96" />
-                                            )}
-                                        </div>
-                                    )}
-                                    {msg.text && <p className="whitespace-pre-wrap mt-2">{msg.text}</p>}
-                                    {msg.sender === 'ai' && msg.text && (
-                                        <div className="mt-2 flex items-center justify-between">
-                                            <button onClick={() => playTTS(msg.text)} className="text-gray-400 hover:text-white transition" aria-label="Escuchar mensaje"><SoundIcon className="h-5 w-5"/></button>
-                                            {msg.sources && msg.sources.length > 0 && (
-                                                <div className="text-xs text-gray-400 ml-4">
-                                                    <h4 className="font-bold">Fuentes:</h4>
-                                                    <ul className="list-disc list-inside">
-                                                        {msg.sources.map((source, i) => (<li key={i}><a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-red-400 hover:underline">{source.title || source.uri}</a></li>))}
-                                                    </ul>
-                                                </div>
-                                            )}
-                                        </div>
+                                <div className="group relative max-w-lg lg:max-w-2xl">
+                                    <div className={`px-4 py-2 rounded-lg ${msg.sender === 'user' ? 'bg-red-600' : 'bg-gray-800'}`}>
+                                        {(msg.attachments && msg.attachments.length > 0) && (
+                                            <MessageAttachments attachments={msg.attachments} sender={msg.sender}/>
+                                        )}
+                                        {msg.mediaUrl && (!msg.attachments || msg.attachments.length === 0) && (
+                                            <div className="mb-2">
+                                                {msg.mediaType?.startsWith('image/') ? (
+                                                    <img src={msg.mediaUrl} alt="Media" className="rounded-lg max-h-96" />
+                                                ) : (
+                                                    <video src={msg.mediaUrl} controls className="rounded-lg max-h-96" />
+                                                )}
+                                            </div>
+                                        )}
+                                        {msg.text && renderMessageContent(msg)}
+                                        {msg.sender === 'ai' && (
+                                            <div className="mt-2 flex items-center justify-between">
+                                                {msg.text && (
+                                                <button onClick={() => handleTtsToggle(msg.id, msg.text)} className="text-gray-400 hover:text-white transition w-5 h-5 flex items-center justify-center" aria-label="Escuchar o pausar mensaje">
+                                                    {ttsState.messageId === msg.id && ttsState.status === 'LOADING' ? (
+                                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                    ) : ttsState.messageId === msg.id && ttsState.status === 'PLAYING' ? (
+                                                        <PauseIcon className="h-5 w-5" />
+                                                    ) : (
+                                                        <SoundIcon className="h-5 w-5" />
+                                                    )}
+                                                </button>
+                                                )}
+                                                {msg.sources && msg.sources.length > 0 && (
+                                                    <div className="text-xs text-gray-400 ml-4">
+                                                        <h4 className="font-bold">Fuentes:</h4>
+                                                        <ul className="list-disc list-inside">
+                                                            {msg.sources.map((source, i) => (<li key={i}><a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-red-400 hover:underline">{source.title || source.uri}</a></li>))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {msg.text && (
+                                        <button 
+                                            onClick={() => handleCopyToClipboard(msg.text)} 
+                                            className={`absolute top-2 right-2 p-1.5 bg-gray-900/50 text-gray-300 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${msg.sender === 'user' ? 'bg-red-800/50' : ''}`}
+                                            aria-label="Copiar mensaje"
+                                        >
+                                            <CopyIcon className="w-4 h-4" />
+                                        </button>
                                     )}
                                 </div>
                             </div>

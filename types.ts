@@ -15,6 +15,7 @@ export enum ChatMode {
   COMPLEX = 'Complejo (Pensando)',
   WEB_SEARCH = 'Búsqueda Web',
   MAPS_SEARCH = 'Búsqueda en Mapas',
+  CANVAS = 'Canvas',
 }
 
 export interface Attachment {

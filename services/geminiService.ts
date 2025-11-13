@@ -1,16 +1,13 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Modality, Content, Part, GroundingChunk } from "@google/genai";
-import { ChatMode, AspectRatio, GroundingSource, VideoAspectRatio } from "../types";
-
-// Usa una sola fuente para la API KEY - puedes adaptar según tu bundler/build
-const API_KEY = process.env.API_KEY || (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_KEY);
+import { ChatMode, AspectRatio, GroundingSource, VideoAspectRatio } from '../types';
 
 let ai: GoogleGenAI | null = null;
 const getAi = () => {
     if (!ai) {
-        if (!API_KEY) {
+        if (!process.env.API_KEY) {
             throw new Error("La variable de entorno API_KEY no está configurada");
         }
-        ai = new GoogleGenAI({ apiKey: API_KEY });
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     }
     return ai;
 };
@@ -29,7 +26,6 @@ const extractSources = (groundingMetadata: GroundingChunk[] | undefined): Ground
     return sources;
 };
 
-// Corregir tipo explícito al devolver respuesta, y manejo robusto de partes nulas/vacías.
 export const generateChatResponse = async (
     prompt: string,
     history: Content[],
@@ -37,150 +33,144 @@ export const generateChatResponse = async (
     location: { latitude: number, longitude: number } | null,
     mediaParts?: Part[]
 ): Promise<{ text: string, sources: GroundingSource[], mediaUrl?: string, mediaType?: string, historyParts: Part[] }> => {
-    const genai = getAi();
+    const ai = getAi();
     let modelName: string;
-    let config: any = {};
+    let config: any = {
+        systemInstruction: "Eres Arens IA, un asistente de IA amigable y servicial. Responde de manera concisa y útil. Incorpora emojis relevantes de forma natural en tus respuestas para que la conversación sea más amena. 😊"
+    };
     let toolConfig: any = {};
 
-    switch (mode) {
+    // Detectar si el prompt contiene una URL para forzar el modo de búsqueda web
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const containsUrl = urlRegex.test(prompt);
+    const effectiveMode = containsUrl ? ChatMode.WEB_SEARCH : mode;
+
+    switch (effectiveMode) {
         case ChatMode.LOW_LATENCY:
-            modelName = "gemini-2.5-flash-lite";
+            modelName = 'gemini-2.5-flash-lite';
             break;
         case ChatMode.COMPLEX:
-            modelName = "gemini-2.5-pro";
+            modelName = 'gemini-2.5-pro';
             config.thinkingConfig = { thinkingBudget: 32768 };
             break;
         case ChatMode.WEB_SEARCH:
-            modelName = "gemini-2.5-flash";
+            modelName = 'gemini-2.5-flash';
             config.tools = [{ googleSearch: {} }];
             break;
         case ChatMode.MAPS_SEARCH:
-            modelName = "gemini-2.5-flash";
+            modelName = 'gemini-2.5-flash';
             config.tools = [{ googleMaps: {} }];
             if (location) {
                 toolConfig.retrievalConfig = { latLng: location };
             }
             break;
+        case ChatMode.CANVAS:
+            modelName = 'gemini-2.5-pro';
+            config.systemInstruction = "Eres un asistente de codificación experto. Tu tarea es generar código HTML, CSS y JavaScript autónomo basado en la solicitud del usuario. La respuesta DEBE ser un único bloque de código markdown de tipo 'html' que contenga un documento HTML completo y funcional. El código no debe depender de recursos externos. Este código se renderizará directamente en una vista previa. No incluyas ningún otro texto explicativo fuera del bloque de código.";
+            break;
         case ChatMode.STANDARD:
         default:
-            modelName = "gemini-2.5-pro";
+            modelName = 'gemini-2.5-pro'; // Modelo mejorado para capacidades multimodales
             break;
     }
 
-    const hasMedia = Array.isArray(mediaParts) && mediaParts.length > 0;
+    // Forzar gemini-2.5-pro para cualquier entrada multimodal para un mejor análisis
+    const hasMedia = mediaParts && mediaParts.length > 0;
     if (hasMedia) {
-        modelName = "gemini-2.5-pro";
+        modelName = 'gemini-2.5-pro';
     }
 
     const userMessageContent: { parts: Part[] } = { parts: [{ text: prompt }] };
-    if (mediaParts && mediaParts.length > 0) {
+    if (mediaParts) {
         userMessageContent.parts.push(...mediaParts);
     }
 
-    // chat puede no ser asíncrono, pero por si acaso
-    const chat = genai.chats.create({ model: modelName, history, config, toolConfig });
+    const chat = ai.chats.create({ model: modelName, history, config, toolConfig });
     const response: GenerateContentResponse = await chat.sendMessage({ message: userMessageContent });
-
+    
     const parts = response.candidates?.[0]?.content?.parts || [];
-    const textPart = parts.find(p => "text" in p) as { text: string } | undefined;
-    const text = textPart?.text || "";
+    const textPart = parts.find(p => 'text' in p);
+    const text = textPart ? (textPart as { text: string }).text : '';
 
-    const mediaPart = parts.find(p => "inlineData" in p && p.inlineData) as any;
+    const mediaPart = parts.find(p => 'inlineData' in p && p.inlineData);
     let mediaUrl: string | undefined = undefined;
     let mediaType: string | undefined = undefined;
 
-    if (mediaPart && mediaPart.inlineData) {
+    if (mediaPart && 'inlineData' in mediaPart && mediaPart.inlineData) {
         mediaUrl = `data:${mediaPart.inlineData.mimeType};base64,${mediaPart.inlineData.data}`;
         mediaType = mediaPart.inlineData.mimeType;
     }
-
+    
     const sources = extractSources(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
 
     return { text, sources, mediaUrl, mediaType, historyParts: parts };
 };
 
-// GENERACIÓN DE IMÁGENES
 export const generateImage = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
-    const genai = getAi();
-    const response = await genai.models.generateImages({
-        model: "imagen-4.0-generate-001",
+    const ai = getAi();
+    const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
         prompt,
         config: {
             numberOfImages: 1,
-            outputMimeType: "image/jpeg",
+            outputMimeType: 'image/jpeg',
             aspectRatio,
         },
     });
-
-    // Compatibilidad con diferentes respuestas de SDK/API
-    let base64ImageBytes: string | undefined = undefined;
-    if (response.generatedImages && response.generatedImages[0]) {
-        base64ImageBytes = response.generatedImages[0].imageBytes || response.generatedImages[0].image?.imageBytes;
-    }
-
-    if (!base64ImageBytes) throw new Error("No se pudo generar la imagen. Respuesta inesperada.");
+    const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
     return `data:image/jpeg;base64,${base64ImageBytes}`;
 };
 
-// EDICIÓN DE IMÁGENES
+
 export const editImage = async (base64Image: string, mimeType: string, prompt: string): Promise<string> => {
-    const genai = getAi();
+    const ai = getAi();
     const imagePart = { inlineData: { data: base64Image, mimeType } };
     const textPart = { text: prompt };
 
-    const response = await genai.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: [{ parts: [textPart, imagePart] }],
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        // Se corrigió el orden: el texto de la instrucción debe ir antes que la imagen.
+        contents: { parts: [textPart, imagePart] },
         config: { responseModalities: [Modality.IMAGE] },
     });
-
-    // Buscar el primer candidato y parte que tenga una imagen con inlineData
-    const candidates = response.candidates || [];
-    let part;
-    for (const candidate of candidates) {
-        if (!candidate.content || !candidate.content.parts) continue;
-        part = candidate.content.parts.find(
-            (p: any) => p.inlineData && p.inlineData.mimeType && p.inlineData.mimeType.startsWith("image/")
-        );
-        if (part) break;
-    }
-
-    if (part && part.inlineData && part.inlineData.data) {
+    
+    const part = response.candidates?.[0]?.content?.parts[0];
+    if (part && part.inlineData) {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
     }
-    throw new Error("No se pudo editar la imagen. Estructura inesperada en la respuesta.");
+    throw new Error("No se pudo editar la imagen.");
 };
 
 export const analyzeMedia = async (base64Media: string | string[], mimeType: string, prompt: string): Promise<string> => {
-    const genai = getAi();
-    const model = Array.isArray(base64Media) ? "gemini-2.5-pro" : "gemini-2.5-flash";
+    const ai = getAi();
+    const model = Array.isArray(base64Media) ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
     const parts: Part[] = [{ text: prompt }];
 
     if (Array.isArray(base64Media)) {
-        for (const frame of base64Media) {
-            parts.push({ inlineData: { data: frame, mimeType: "image/jpeg" } });
-        }
+        base64Media.forEach(frame => {
+            parts.push({ inlineData: { data: frame, mimeType: 'image/jpeg' } });
+        });
     } else {
         parts.push({ inlineData: { data: base64Media, mimeType } });
     }
 
-    const response = await genai.models.generateContent({
+    const response = await ai.models.generateContent({
         model,
-        contents: [{ parts }],
+        contents: { parts },
     });
-    return response.text || "";
+    return response.text;
 };
 
 export const generateSpeech = async (text: string): Promise<string> => {
-    const genai = getAi();
-    const response = await genai.models.generateContent({
+    const ai = getAi();
+    const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
         config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
                 voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: "Kore" },
+                    prebuiltVoiceConfig: { voiceName: 'Kore' },
                 },
             },
         },
@@ -190,15 +180,11 @@ export const generateSpeech = async (text: string): Promise<string> => {
         throw new Error("Error al generar el audio.");
     }
     return base64Audio;
-};
+}
 
-// Exportación robusta dependiendo de si .live existe
 export const getLiveSession = () => {
-    const genai = getAi();
-    if (!("live" in genai)) throw new Error("Live session no soportada en esta versión o instancia.");
-    // @ts-ignore
-    return genai.live;
-};
+    return getAi().live;
+}
 
 export const generateVideo = async (
     prompt: string,
@@ -206,14 +192,14 @@ export const generateVideo = async (
     mimeType: string,
     aspectRatio: VideoAspectRatio
 ): Promise<string> => {
-    if (!API_KEY) {
+    // Crea una nueva instancia para Veo para asegurar que se use la clave de API más reciente
+    if (!process.env.API_KEY) {
         throw new Error("La variable de entorno API_KEY no está configurada");
     }
-    // Siempre instancia nueva por si la API key ha cambiado en tiempo de ejecución
-    const genai = new GoogleGenAI({ apiKey: API_KEY });
-
-    let operation = await genai.models.generateVideos({
-        model: "veo-3.1-fast-generate-preview",
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    let operation = await ai.models.generateVideos({
+        model: 'veo-3.1-fast-generate-preview',
         prompt: prompt,
         image: {
             imageBytes: base64Image,
@@ -221,15 +207,14 @@ export const generateVideo = async (
         },
         config: {
             numberOfVideos: 1,
-            resolution: "720p",
-            aspectRatio: aspectRatio,
-        },
+            resolution: '720p',
+            aspectRatio: aspectRatio
+        }
     });
 
-    // La API puede requerir operation.name, ajusta si tu SDK lo exige
     while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        operation = await genai.operations.getVideosOperation({ name: operation.name });
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Sondear cada 10 segundos
+        operation = await ai.operations.getVideosOperation({ operation: operation });
     }
 
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
@@ -237,16 +222,11 @@ export const generateVideo = async (
         throw new Error("No se pudo obtener el enlace de descarga del video.");
     }
 
-    // Atención: fetch y URL solo funcionan en browser, no en Node puro
-    const response = await fetch(`${downloadLink}&key=${API_KEY}`);
+    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
     if (!response.ok) {
         const errorBody = await response.text();
         console.error("Error al descargar video:", errorBody);
         throw new Error(`Error al descargar el video: ${response.statusText}`);
-    }
-
-    if (typeof window === "undefined" || typeof URL === "undefined") {
-        throw new Error("URL.createObjectURL no está disponible fuera de un entorno de navegador.");
     }
 
     const videoBlob = await response.blob();
