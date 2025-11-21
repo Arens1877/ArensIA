@@ -2,6 +2,7 @@
 import React from 'react';
 import { Tab } from '../types';
 import { ChatIcon, EditIcon, ImageIcon, MicIcon, VisionIcon, VideoIcon, YouTubeIcon } from './icons';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface HeaderProps {
   activeTab: Tab;
@@ -9,6 +10,8 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
+  const { currentTheme } = useTheme();
+
   const tabs = [
     { id: Tab.CHAT, icon: <ChatIcon className="h-5 w-5 mr-2" /> },
     { id: Tab.IMAGE_GEN, icon: <ImageIcon className="h-5 w-5 mr-2" /> },
@@ -22,7 +25,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     <header className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-700 p-4 sticky top-0 z-10">
       <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center">
         <h1 className="text-2xl font-bold text-white mb-4 sm:mb-0">
-          Arens <span className="text-red-500">IA</span>
+          Arens <span className={currentTheme.colors.text}>IA</span>
         </h1>
         <nav className="flex flex-wrap justify-center gap-2">
           {tabs.map((tab) => (
@@ -31,7 +34,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
                 activeTab === tab.id
-                  ? 'bg-red-600 text-white'
+                  ? `${currentTheme.colors.primary} text-white`
                   : 'text-gray-300 hover:bg-gray-700 hover:text-white'
               }`}
             >

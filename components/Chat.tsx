@@ -1,133 +1,92 @@
-// FIX: Add type definitions for the Web Speech API to resolve 'SpeechRecognition' not found error.
-interface SpeechRecognitionErrorEvent extends Event {
-    error: string;
-    message: string;
-}
 
-interface SpeechRecognitionEvent extends Event {
-    resultIndex: number;
-    results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionResultList {
-    [index: number]: SpeechRecognitionResult;
-    length: number;
-    item(index: number): SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-    isFinal: boolean;
-    [index: number]: SpeechRecognitionAlternative;
-    length: number;
-    item(index: number): SpeechRecognitionAlternative;
-}
-
-interface SpeechRecognitionAlternative {
-    transcript: string;
-    confidence: number;
-}
-
-interface SpeechRecognition extends EventTarget {
-    continuous: boolean;
-    interimResults: boolean;
-    lang: string;
-    onstart: () => void;
-    onend: () => void;
-    onerror: (event: SpeechRecognitionErrorEvent) => void;
-    onresult: (event: SpeechRecognitionEvent) => void;
-    start(): void;
-    stop(): void;
-}
-
-declare var SpeechRecognition: {
-    prototype: SpeechRecognition;
-    new(): SpeechRecognition;
-};
-
-declare var webkitSpeechRecognition: {
-    prototype: SpeechRecognition;
-    new(): SpeechRecognition;
-};
-
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Message, ChatMode, ChatSession, Attachment } from '../types';
 import { generateChatResponse, generateSpeech } from '../services/geminiService';
-import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon, FileIcon, AudioFileIcon, MicIcon, MenuIcon, CanvasIcon, CopyIcon, PauseIcon } from './icons';
-import { decode, decodeAudioData, fileToBase64, extractFramesFromVideo } from '../utils/helpers';
-import HistorySidebar from './HistorySidebar';
+import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon, FileIcon, MicIcon, MenuIcon, CopyIcon, PauseIcon, TrashIcon, PlusIcon, LinkIcon, SparklesIcon, StarIcon } from './icons';
+import { decode, decodeAudioData, fileToBase64 } from '../utils/helpers';
 import { Part } from '@google/genai';
 import CanvasRenderer from './CanvasRenderer';
+import { useTheme } from '../contexts/ThemeContext';
 
 const CHAT_SESSIONS_KEY = 'arens_ia_chat_sessions';
 
 const createNewSession = (mode: ChatMode = ChatMode.STANDARD): ChatSession => ({
     id: crypto.randomUUID(),
     title: 'Nueva Conversación',
-    messages: [{ id: crypto.randomUUID(), sender: 'ai', text: `¡Hola! Soy Arens IA en modo ${mode}. ¿Cómo puedo ayudarte hoy?` }],
+    messages: [{ id: crypto.randomUUID(), sender: 'ai', text: `¡Hola! Soy Arens IA. Estoy lista para ayudarte en modo **${mode}**. ¿Qué necesitas? 🧐🍷` }],
     history: [],
     mode: mode,
     createdAt: Date.now(),
+    isFavorite: false,
 });
 
-// FIX: Define props type for AttachmentPreview to correctly type the component.
-type AttachmentPreviewProps = {
-    attachment: Attachment;
-    onRemove: () => void;
-};
-
-// FIX: Explicitly type AttachmentPreview as a React.FC to correctly handle React's special `key` prop.
-const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ attachment, onRemove }) => {
+const AttachmentPreview: React.FC<{ attachment: Attachment; onRemove: () => void }> = ({ attachment, onRemove }) => {
     const renderContent = () => {
-        if (attachment.type.startsWith('image/')) {
-            return <img src={attachment.url} alt={attachment.name} className="w-full h-full object-cover rounded" />;
-        }
-        if (attachment.type.startsWith('video/')) {
-            return <video src={attachment.url} className="w-full h-full object-cover rounded" />;
-        }
-        if (attachment.type.startsWith('audio/')) {
-            return <div className="w-full h-full flex flex-col items-center justify-center bg-gray-600 rounded"><AudioFileIcon className="w-8 h-8 text-gray-300" /><span className="text-xs text-center text-gray-300 mt-1 truncate px-1">{attachment.name}</span></div>;
-        }
-        return <div className="w-full h-full flex flex-col items-center justify-center bg-gray-600 rounded"><FileIcon className="w-8 h-8 text-gray-300" /><span className="text-xs text-center text-gray-300 mt-1 truncate px-1">{attachment.name}</span></div>;
+        if (attachment.type.startsWith('image/')) return <img src={attachment.url} alt={attachment.name} className="w-full h-full object-cover rounded-xl" />;
+        return <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-800 rounded-xl"><FileIcon className="w-6 h-6 text-zinc-400" /></div>;
     };
     return (
-        <div className="relative w-24 h-24 p-1 bg-gray-700 rounded-lg">
+        <div className="relative w-16 h-16 group animate-scaleIn flex-shrink-0">
             {renderContent()}
-            <button onClick={onRemove} className="absolute -top-2 -right-2 bg-gray-800 rounded-full text-white hover:text-red-500 transition-colors">
-                <XCircleIcon className="w-6 h-6" />
+            <button onClick={onRemove} className="absolute -top-2 -right-2 bg-zinc-900 border border-zinc-700 rounded-full p-0.5 text-zinc-400 hover:text-red-500 transition-colors shadow-lg active:scale-90 z-10">
+                <XCircleIcon className="w-4 h-4" />
             </button>
         </div>
     );
 };
 
-const MessageAttachments = ({ attachments, sender }: { attachments: Attachment[], sender: 'user' | 'ai' }) => {
-    return (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
-            {attachments.map((att, index) => {
-                const sizeClass = sender === 'user' ? 'w-32 h-32' : 'w-48 h-48';
-                if (att.type.startsWith('image/')) {
-                    return <img key={index} src={att.url} alt={att.name} className={`${sizeClass} object-cover rounded-lg`} />;
-                }
-                if (att.type.startsWith('video/')) {
-                    return <video key={index} src={att.url} controls className={`${sizeClass} object-cover rounded-lg`} />;
-                }
-                if (att.type.startsWith('audio/')) {
-                    return (
-                        <div key={index} className="bg-gray-700 p-2 rounded-lg flex flex-col items-center justify-center text-center">
-                            <AudioFileIcon className="w-8 h-8 mb-2" />
-                            <span className="text-xs break-all">{att.name}</span>
-                            <audio src={att.url} controls className="w-full mt-2" />
-                        </div>
-                    );
-                }
-                return (
-                     <a key={index} href={att.url} target="_blank" rel="noopener noreferrer" className="bg-gray-700 p-2 rounded-lg flex flex-col items-center justify-center text-center hover:bg-gray-600">
-                        <FileIcon className="w-8 h-8 mb-2" />
-                        <span className="text-xs break-all">{att.name}</span>
-                    </a>
-                );
-            })}
-        </div>
-    );
+const getSmartSuggestions = (input: string): string[] => {
+    const lower = input.toLowerCase();
+    
+    if (!input.trim()) {
+        return [
+            "Sorpréndeme con un dato elegante 🧐",
+            "Genera una imagen surrealista 🎨",
+            "Analiza las tendencias actuales 🍷"
+        ];
+    }
+
+    if (lower.includes('imagen') || lower.includes('foto') || lower.includes('pintura')) {
+        return [
+            "Genera una imagen fotorrealista 4K",
+            "Crea un paisaje cyberpunk neón",
+            "Diseña un logotipo minimalista"
+        ];
+    }
+
+    if (lower.includes('video') || lower.includes('película')) {
+        return [
+            "Crea un guion cinematográfico",
+            "Genera un prompt para un video épico",
+            "Explícame cómo hacer transiciones suaves"
+        ];
+    }
+
+    if (lower.includes('código') || lower.includes('program') || lower.includes('react') || lower.includes('js')) {
+        return [
+            "Genera un componente de React moderno",
+            "Optimiza este algoritmo con elegancia",
+            "Explica este concepto de programación"
+        ];
+    }
+
+    if (lower.includes('hola') || lower.includes('buenos') || lower.includes('saludo')) {
+        return [
+            "Saludos cordiales, Arens 🍷",
+            "Hola, distinguida inteligencia",
+            "¿Cómo te encuentras hoy?"
+        ];
+    }
+
+    if (lower.includes('explica') || lower.includes('qué es') || lower.includes('resumen')) {
+        return [
+            "Explícame esto con detalle y sofisticación",
+            "Dame un resumen ejecutivo breve",
+            "Analiza los puntos clave"
+        ];
+    }
+    
+    return [];
 };
 
 
@@ -140,526 +99,399 @@ const Chat: React.FC = () => {
     const [location, setLocation] = useState<{ latitude: number, longitude: number } | null>(null);
     const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
     const [mediaPreviews, setMediaPreviews] = useState<Attachment[]>([]);
-    const [isRecording, setIsRecording] = useState(false);
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [ttsState, setTtsState] = useState<{ messageId: string | null; status: 'PLAYING' | 'PAUSED' | 'LOADING' | 'STOPPED' }>({ messageId: null, status: 'STOPPED' });
+    const [isListening, setIsListening] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+    const [detectedLink, setDetectedLink] = useState<string | null>(null);
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    
+    const { currentTheme } = useTheme();
     
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const recognitionRef = useRef<SpeechRecognition | null>(null);
-    const baseTextRef = useRef('');
-
-    // Refs for TTS
     const audioContextRef = useRef<AudioContext | null>(null);
-    const ttsAudioBufferRef = useRef<AudioBuffer | null>(null);
     const ttsSourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-    const ttsPlaybackOffsetRef = useRef(0);
-    const ttsStartTimeRef = useRef(0);
+    const recognitionRef = useRef<any>(null);
 
     useEffect(() => {
-        try {
-            const savedSessions = localStorage.getItem(CHAT_SESSIONS_KEY);
-            const parsedSessions: ChatSession[] = savedSessions ? JSON.parse(savedSessions) : [];
-            if (parsedSessions.length > 0) {
-                parsedSessions.sort((a, b) => b.createdAt - a.createdAt);
-                setSessions(parsedSessions);
-                setActiveSessionId(parsedSessions[0].id);
-            } else {
-                const newSession = createNewSession();
-                setSessions([newSession]);
-                setActiveSessionId(newSession.id);
-            }
-        } catch (e) {
-            console.error("Failed to load sessions from localStorage", e);
-            const newSession = createNewSession();
-            setSessions([newSession]);
-            setActiveSessionId(newSession.id);
+        const saved = localStorage.getItem(CHAT_SESSIONS_KEY);
+        const parsed = saved ? JSON.parse(saved) : [];
+        if (parsed.length) {
+            setSessions(parsed);
+            setActiveSessionId(parsed[0].id);
+        } else {
+            const newS = createNewSession();
+            setSessions([newS]);
+            setActiveSessionId(newS.id);
         }
     }, []);
 
     useEffect(() => {
-        if (sessions.length > 0) {
-            localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
-        } else {
-            localStorage.removeItem(CHAT_SESSIONS_KEY);
-        }
+        if (sessions.length) localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
     }, [sessions]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [activeSessionId, sessions]);
-    
+    }, [sessions, activeSessionId, isLoading]);
+
+    // URL detection & Suggestion logic
     useEffect(() => {
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            console.warn("El reconocimiento de voz no es compatible con este navegador.");
-            return;
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const match = input.match(urlRegex);
+        if (match && match.length > 0) {
+            setDetectedLink(match[0]);
+        } else {
+            setDetectedLink(null);
         }
-        
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'es-ES';
 
-        recognition.onstart = () => setIsRecording(true);
-        recognition.onend = () => setIsRecording(false);
-        // FIX: Add explicit type for the event parameter for better type safety.
-        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-            console.error('Error de reconocimiento de voz', event.error);
-            setError(`Error de reconocimiento de voz: ${event.error}`);
-            setIsRecording(false);
-        };
-
-        // FIX: Add explicit type for the event parameter for better type safety.
-        recognition.onresult = (event: SpeechRecognitionEvent) => {
-            let interimTranscript = '';
-            let finalTranscript = '';
-
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    finalTranscript += transcript + ' ';
-                } else {
-                    interimTranscript += transcript;
-                }
-            }
-            
-            if(finalTranscript) {
-                baseTextRef.current = baseTextRef.current + finalTranscript;
-            }
-            setInput(baseTextRef.current + interimTranscript);
-        };
-
-        recognitionRef.current = recognition;
-
-        return () => {
-            recognition.stop();
-        };
-    }, []);
+        setSuggestions(getSmartSuggestions(input));
+    }, [input]);
 
     const activeSession = sessions.find(s => s.id === activeSessionId);
 
-    useEffect(() => {
-        if (activeSession?.mode === ChatMode.MAPS_SEARCH && !location) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => setLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-                (err) => {
-                    setError('No se pudo obtener la ubicación. Por favor, activa los servicios de localización.');
-                    console.error(err);
-                }
-            );
-        }
-    }, [activeSession?.mode, location]);
-    
-    // Cleanup object URLs
-    useEffect(() => {
-        return () => {
-            mediaPreviews.forEach(preview => URL.revokeObjectURL(preview.url));
-        }
-    }, [mediaPreviews]);
-
-    const updateSession = (sessionId: string, updates: Partial<ChatSession>) => {
-        setSessions(prevSessions =>
-            prevSessions.map(s => s.id === sessionId ? { ...s, ...updates } : s)
-        );
+    const updateSession = (id: string, updates: Partial<ChatSession>) => {
+        setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
     };
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (files) {
-            const newFiles = Array.from(files);
-            // FIX: Explicitly type 'file' as File to resolve unknown type errors.
-            const validFiles = newFiles.filter((file: File) => {
-                 if (file.size > 20 * 1024 * 1024) { // 20MB limit
-                    setError(`El archivo ${file.name} es demasiado grande. El límite es de 20MB.`);
-                    return false;
-                }
-                return true;
-            });
-            
-            setAttachedFiles(prev => [...prev, ...validFiles]);
-            
-            // FIX: Explicitly type 'file' as File to resolve unknown type errors.
-            const newPreviews = validFiles.map((file: File) => ({
-                name: file.name,
-                type: file.type,
-                url: URL.createObjectURL(file)
-            }));
-            setMediaPreviews(prev => [...prev, ...newPreviews]);
-            
-            setError(null);
-        }
-        e.target.value = '';
+    const toggleFavorite = (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        setSessions(prev => prev.map(s => s.id === id ? { ...s, isFavorite: !s.isFavorite } : s));
     };
 
-    const handleRemoveAttachment = (indexToRemove: number) => {
-        URL.revokeObjectURL(mediaPreviews[indexToRemove].url);
-        setAttachedFiles(prev => prev.filter((_, i) => i !== indexToRemove));
-        setMediaPreviews(prev => prev.filter((_, i) => i !== indexToRemove));
-    };
-    
-    const handleToggleRecording = () => {
-        if (!recognitionRef.current) return;
-        if (isRecording) {
-            recognitionRef.current.stop();
-        } else {
-            baseTextRef.current = input;
-            recognitionRef.current.start();
-        }
-    };
+    const handleSend = async (textToSend?: string) => {
+        const messageText = textToSend || input;
+        if ((!messageText.trim() && !attachedFiles.length) || isLoading || !activeSession) return;
+        
+        const newMessage: Message = { id: crypto.randomUUID(), sender: 'user', text: messageText.trim(), attachments: mediaPreviews };
+        const updatedMessages = [...activeSession.messages, newMessage];
+        const isFirst = activeSession.messages.length <= 1;
+        
+        updateSession(activeSession.id, { messages: updatedMessages, title: isFirst ? (messageText.substring(0, 30) || "Media") : activeSession.title });
+        setInput(''); setAttachedFiles([]); setMediaPreviews([]); setIsLoading(true); setError(null); setDetectedLink(null);
 
-    const handleSend = async () => {
-        if ((!input.trim() && attachedFiles.length === 0) || isLoading || !activeSession) return;
-
-        const userMessage: Message = { 
-            id: crypto.randomUUID(), 
-            sender: 'user', 
-            text: input.trim(),
-            attachments: mediaPreviews,
-        };
-        
-        const updatedMessages = [...activeSession.messages, userMessage];
-        const isFirstUserMessage = activeSession.messages.filter(m => m.sender === 'user').length === 0;
-        
-        updateSession(activeSession.id, {
-             messages: updatedMessages,
-             ...(isFirstUserMessage && { title: (input.trim() || "Análisis de Medios").substring(0, 40) })
-        });
-        
-        const filesToSend = [...attachedFiles];
-        setInput('');
-        setAttachedFiles([]);
-        setMediaPreviews([]);
-        setIsLoading(true);
-        setError(null);
-        
         try {
-            let mediaParts: Part[] = [];
-            for (const file of filesToSend) {
-                if (file.type.startsWith('video/')) {
-                    const frames = await extractFramesFromVideo(file, 1);
-                    if (frames.length > 0) {
-                        mediaParts.push(...frames.map(frame => ({ inlineData: { data: frame, mimeType: 'image/jpeg' } })));
-                    }
-                } else {
-                    const base64Data = await fileToBase64(file);
-                    mediaParts.push({ inlineData: { data: base64Data, mimeType: file.type } });
-                }
+            const mediaParts: Part[] = [];
+            for (const file of attachedFiles) {
+                const base64 = await fileToBase64(file);
+                mediaParts.push({ inlineData: { data: base64, mimeType: file.type } });
             }
 
-            const { text, sources, mediaUrl, mediaType, historyParts } = await generateChatResponse(userMessage.text, activeSession.history, activeSession.mode, location, mediaParts);
+            if (activeSession.mode === ChatMode.MAPS_SEARCH && !location) {
+                 await new Promise<void>((resolve) => {
+                    navigator.geolocation.getCurrentPosition(p => {
+                        setLocation({ latitude: p.coords.latitude, longitude: p.coords.longitude });
+                        resolve();
+                    }, () => resolve());
+                 });
+            }
+
+            const res = await generateChatResponse(newMessage.text, activeSession.history, activeSession.mode, location, mediaParts);
             
-            const aiAttachments: Attachment[] = [];
-            if (mediaUrl && mediaType) {
-                aiAttachments.push({ name: 'Generated Content', type: mediaType, url: mediaUrl });
-            }
-
-            const aiMessage: Message = { 
+            const aiMsg: Message = { 
                 id: crypto.randomUUID(), 
                 sender: 'ai', 
-                text, 
-                sources,
-                attachments: aiAttachments,
+                text: res.text, 
+                sources: res.sources, 
+                mediaUrl: res.mediaUrl, 
+                mediaType: res.mediaType,
+                suggestions: res.suggestions
             };
-            
-            const userTurnParts: Part[] = [{ text: userMessage.text }];
-            if (mediaParts.length > 0) {
-                userTurnParts.push(...mediaParts);
-            }
 
+            const userParts: Part[] = [{ text: newMessage.text }, ...mediaParts];
             updateSession(activeSession.id, {
-                messages: [...updatedMessages, aiMessage],
-                history: [
-                    ...activeSession.history,
-                    { role: 'user', parts: userTurnParts },
-                    { role: 'model', parts: historyParts },
-                ],
+                messages: [...updatedMessages, aiMsg],
+                history: [...activeSession.history, { role: 'user', parts: userParts }, { role: 'model', parts: res.historyParts }]
             });
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
-            setError(errorMessage);
-            const errorAiMessage: Message = { id: crypto.randomUUID(), sender: 'ai', text: `Lo siento, ocurrió un error: ${errorMessage}` };
-            updateSession(activeSession.id, {
-                messages: [...updatedMessages, errorAiMessage]
-            });
+        } catch (e: any) {
+            setError(e.message);
+            updateSession(activeSession.id, { messages: [...updatedMessages, { id: crypto.randomUUID(), sender: 'ai', text: `Error: ${e.message}` }] });
         } finally {
             setIsLoading(false);
         }
     };
-    
-    const handleTtsEnd = useCallback(() => {
-        setTtsState({ messageId: null, status: 'STOPPED' });
-        ttsPlaybackOffsetRef.current = 0;
-        ttsAudioBufferRef.current = null;
-        ttsSourceNodeRef.current = null;
-    }, []);
 
-    const playAudio = useCallback((buffer: AudioBuffer, offset: number) => {
-        if (!audioContextRef.current) return;
-        const source = audioContextRef.current.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioContextRef.current.destination);
-        source.onended = handleTtsEnd;
-        source.start(0, offset);
+    const handleSuggestionClick = (suggestion: string) => {
+        handleSend(suggestion);
+    };
 
-        ttsSourceNodeRef.current = source;
-        ttsStartTimeRef.current = audioContextRef.current.currentTime;
-    }, [handleTtsEnd]);
-
-    const handleTtsToggle = useCallback(async (messageId: string, text: string) => {
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            const files = Array.from(e.target.files);
+            processFiles(files);
         }
-        const audioContext = audioContextRef.current;
+    };
 
-        // Case 1: PAUSE
-        if (ttsState.messageId === messageId && ttsState.status === 'PLAYING') {
-            if (ttsSourceNodeRef.current) {
-                ttsSourceNodeRef.current.onended = null;
-                ttsSourceNodeRef.current.stop();
-                ttsSourceNodeRef.current = null;
+    const processFiles = (files: File[]) => {
+        setAttachedFiles(prev => [...prev, ...files]);
+        const newPreviews = files.map(f => ({ name: f.name, type: f.type, url: URL.createObjectURL(f) }));
+        setMediaPreviews(prev => [...prev, ...newPreviews]);
+    };
 
-                const elapsed = audioContext.currentTime - ttsStartTimeRef.current;
-                ttsPlaybackOffsetRef.current += elapsed;
-            }
-            setTtsState({ messageId, status: 'PAUSED' });
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            processFiles(Array.from(e.dataTransfer.files));
+        }
+    };
+
+    const toggleListening = () => {
+        if (isListening) {
+            recognitionRef.current?.stop();
+            setIsListening(false);
             return;
         }
 
-        // Stop any currently playing sound if we're starting a new one
-        if (ttsState.status === 'PLAYING' && ttsState.messageId !== messageId) {
-            if (ttsSourceNodeRef.current) {
-                ttsSourceNodeRef.current.onended = null;
-                ttsSourceNodeRef.current.stop();
-                ttsSourceNodeRef.current = null;
-            }
-        }
-
-        // Case 2: RESUME
-        if (ttsState.messageId === messageId && ttsState.status === 'PAUSED') {
-            if (ttsAudioBufferRef.current) {
-                playAudio(ttsAudioBufferRef.current, ttsPlaybackOffsetRef.current);
-                setTtsState({ messageId, status: 'PLAYING' });
-            }
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Tu navegador no soporta la transcripción de voz.");
             return;
         }
 
-        // Case 3: PLAY NEW
-        if (ttsState.messageId !== messageId) {
-            ttsPlaybackOffsetRef.current = 0;
-            ttsAudioBufferRef.current = null;
-        }
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'es-ES';
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        recognition.onstart = () => setIsListening(true);
+        recognition.onend = () => setIsListening(false);
         
-        setTtsState({ messageId, status: 'LOADING' });
+        recognition.onresult = (event: any) => {
+             const transcript = event.results[0][0].transcript;
+             setInput(prev => (prev ? prev + ' ' : '') + transcript);
+        };
+        
+        recognition.onerror = (event: any) => {
+            console.error("Speech recognition error", event.error);
+            setIsListening(false);
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+    };
+
+    const handleTts = async (id: string, text: string) => {
+        if (ttsState.status === 'PLAYING' && ttsSourceNodeRef.current) {
+            ttsSourceNodeRef.current.stop();
+            setTtsState({ messageId: null, status: 'STOPPED' });
+            return;
+        }
+        setTtsState({ messageId: id, status: 'LOADING' });
         try {
-            let buffer = ttsAudioBufferRef.current;
-            if (!buffer) {
-                const base64Audio = await generateSpeech(text);
-                buffer = await decodeAudioData(decode(base64Audio), audioContext, 24000, 1);
-                ttsAudioBufferRef.current = buffer;
-            }
-            playAudio(buffer, ttsPlaybackOffsetRef.current);
-            setTtsState({ messageId, status: 'PLAYING' });
-        } catch (err) {
-            setError(err instanceof Error ? `Error de TTS: ${err.message}` : 'Ocurrió un error de TTS desconocido.');
-            handleTtsEnd();
-        }
-    }, [ttsState, playAudio, handleTtsEnd]);
-
-    const handleModeChange = (newMode: ChatMode) => {
-        if (!activeSession || activeSession.mode === newMode) return;
-        const resetMessages: Message[] = [{ id: crypto.randomUUID(), sender: 'ai', text: `Cambiado al modo ${newMode}. ¿Cómo puedo ayudar?` }];
-        updateSession(activeSession.id, { mode: newMode, messages: resetMessages, history: [] });
-    };
-    
-    const handleNewChat = () => {
-        const newSession = createNewSession(activeSession?.mode);
-        setSessions(prev => [newSession, ...prev]);
-        setActiveSessionId(newSession.id);
+            const base64 = await generateSpeech(text);
+            if (!audioContextRef.current) audioContextRef.current = new AudioContext();
+            const buffer = await decodeAudioData(decode(base64), audioContextRef.current, 24000, 1);
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContextRef.current.destination);
+            source.onended = () => setTtsState({ messageId: null, status: 'STOPPED' });
+            source.start();
+            ttsSourceNodeRef.current = source;
+            setTtsState({ messageId: id, status: 'PLAYING' });
+        } catch (e) { console.error(e); setTtsState({ messageId: null, status: 'STOPPED' }); }
     };
 
-    const handleDeleteChat = (idToDelete: string) => {
-        const remainingSessions = sessions.filter(s => s.id !== idToDelete);
-        if (activeSessionId === idToDelete) {
-            if (remainingSessions.length > 0) setActiveSessionId(remainingSessions[0].id);
-            else {
-                const newSession = createNewSession();
-                setSessions([newSession]);
-                setActiveSessionId(newSession.id);
-                return; 
-            }
-        }
-        setSessions(remainingSessions);
-    };
-
-    const sortedSessions = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
-    
-    const handleCopyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text).catch(err => console.error('Error al copiar texto: ', err));
-    };
-
-    const renderMessageContent = (msg: Message) => {
+    const renderMessageText = (text: string) => {
         const codeBlockRegex = /```html\n([\s\S]*?)\n```/;
-        const isCanvasMode = activeSession?.mode === ChatMode.CANVAS && msg.sender === 'ai';
-        const match = isCanvasMode ? msg.text.match(codeBlockRegex) : null;
-
+        const match = activeSession?.mode === ChatMode.CANVAS ? text.match(codeBlockRegex) : null;
         if (match) {
-            const code = match[1];
-            const parts = msg.text.split(match[0]);
-            const leadingText = parts[0];
-            const trailingText = parts[1];
-            return (
-                <>
-                    {leadingText && <p className="whitespace-pre-wrap">{leadingText}</p>}
-                    <CanvasRenderer code={code} />
-                    {trailingText && <p className="whitespace-pre-wrap mt-2">{trailingText}</p>}
-                </>
-            );
+            return <><p className="whitespace-pre-wrap mb-4">{text.replace(match[0], '')}</p><CanvasRenderer code={match[1]} /></>;
         }
-        
-        return <p className="whitespace-pre-wrap">{msg.text}</p>;
+        return text.split('\n').map((line, i) => <p key={i} className="min-h-[1rem]">{line}</p>);
     };
+
+    // Sort sessions: Favorites first, then by date (assuming implicit order is date)
+    const sortedSessions = [...sessions].sort((a, b) => {
+        if (a.isFavorite === b.isFavorite) return 0;
+        return a.isFavorite ? -1 : 1;
+    });
 
     return (
-        <div className="flex h-full bg-gray-900 text-white relative overflow-hidden">
-            {isSidebarOpen && (
-                <div
-                    className="fixed inset-0 bg-black/60 z-30 md:hidden"
-                    onClick={() => setIsSidebarOpen(false)}
-                    aria-hidden="true"
-                ></div>
-            )}
-            <HistorySidebar
-                sessions={sortedSessions}
-                activeSessionId={activeSessionId}
-                onNewChat={handleNewChat}
-                onSelectChat={setActiveSessionId}
-                onDeleteChat={handleDeleteChat}
-                isOpen={isSidebarOpen}
-                onClose={() => setIsSidebarOpen(false)}
-            />
-            <div className="flex-1 flex flex-col min-w-0">
-                <div className="p-4 border-b border-gray-700 bg-gray-800">
-                    <div className="flex items-center justify-between">
-                        <button
-                            className="p-2 rounded-md text-gray-300 hover:bg-gray-700 md:hidden"
-                            onClick={() => setIsSidebarOpen(true)}
-                            aria-label="Abrir historial de chats"
-                        >
-                            <MenuIcon className="h-6 w-6" />
-                        </button>
-                        <div className="flex items-center justify-center gap-2 flex-wrap flex-1">
-                            <span className="text-sm font-medium text-gray-300 mr-2 hidden sm:inline">Modo:</span>
-                             {Object.values(ChatMode).map(m => {
-                                const icons: { [key in ChatMode]?: React.ElementType } = {
-                                    [ChatMode.CANVAS]: CanvasIcon,
-                                };
-                                const Icon = icons[m];
-                                return (
-                                <button key={m} onClick={() => handleModeChange(m)} className={`px-3 py-1 text-xs rounded-full transition flex items-center ${activeSession?.mode === m ? 'bg-red-600 text-white font-semibold' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-                                    {Icon && <Icon className="w-4 h-4 mr-1.5" />}
-                                    {m}
+        <div className="flex h-full relative">
+            {/* History Sidebar / Drawer */}
+            <div className={`absolute md:relative z-20 bg-zinc-900/90 backdrop-blur border-r border-white/5 w-72 h-full transition-transform duration-300 ${isHistoryOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden'} flex flex-col`}>
+                 <div className="p-4 flex justify-between items-center border-b border-white/5">
+                    <h3 className="font-semibold text-zinc-300">Historial</h3>
+                    <button onClick={() => setIsHistoryOpen(false)} className="md:hidden text-zinc-400 hover:text-white active:scale-90 transition-transform"><XCircleIcon className="w-6 h-6"/></button>
+                 </div>
+                 <div className="flex-1 overflow-y-auto p-2">
+                    <button onClick={() => {
+                        const n = createNewSession(activeSession?.mode);
+                        setSessions([n, ...sessions]);
+                        setActiveSessionId(n.id);
+                        setIsHistoryOpen(false);
+                    }} className={`w-full flex items-center gap-2 p-3 rounded-xl ${currentTheme.colors.secondary} ${currentTheme.colors.text} mb-2 hover:opacity-80 active:scale-95 transition-all`}>
+                        <PlusIcon className="w-5 h-5" /> Nuevo Chat
+                    </button>
+                    {sortedSessions.map(s => (
+                        <div key={s.id} onClick={() => { setActiveSessionId(s.id); setIsHistoryOpen(false); }} className={`p-3 rounded-xl cursor-pointer mb-1 flex justify-between items-center group transition-all duration-200 ${activeSessionId === s.id ? `bg-zinc-800 text-white border-l-2 ${currentTheme.colors.border}` : 'text-zinc-400 hover:bg-zinc-800/50'}`}>
+                            <div className="flex items-center gap-2 overflow-hidden">
+                                {s.isFavorite && <StarIcon className="w-3 h-3 text-yellow-500 flex-shrink-0" filled />}
+                                <span className="truncate text-sm">{s.title}</span>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={(e) => toggleFavorite(e, s.id)} className={`hover:text-yellow-500 transition-colors active:scale-90 ${s.isFavorite ? 'text-yellow-500 opacity-100' : 'text-zinc-500'}`}>
+                                    <StarIcon className="w-4 h-4" filled={s.isFavorite} />
                                 </button>
-                                );
-                            })}
+                                <button onClick={(e) => { e.stopPropagation(); setSessions(sessions.filter(x => x.id !== s.id)); }} className={`text-zinc-500 hover:${currentTheme.colors.text} transition-all active:scale-90`}><TrashIcon className="w-4 h-4"/></button>
+                            </div>
                         </div>
-                        <div className="w-10 md:hidden" aria-hidden="true"></div>
+                    ))}
+                 </div>
+            </div>
+
+            {/* Main Chat Area */}
+            <div className="flex-1 flex flex-col h-full w-full bg-transparent">
+                {/* Top Bar */}
+                <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 bg-black/20 backdrop-blur-md z-10">
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                        <button onClick={() => setIsHistoryOpen(!isHistoryOpen)} className="md:hidden p-2 text-zinc-400 active:scale-90 transition-transform"><MenuIcon className="w-6 h-6"/></button>
+                        <button onClick={() => setIsHistoryOpen(!isHistoryOpen)} className="hidden md:block p-2 text-zinc-400 hover:text-white active:scale-90 transition-transform"><MenuIcon className="w-5 h-5"/></button>
+                        <div className="h-6 w-px bg-zinc-800 mx-2"></div>
+                        {Object.values(ChatMode).map(m => (
+                            <button key={m} onClick={() => updateSession(activeSession!.id, { mode: m, messages: [], history: [] })} className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium border transition-all active:scale-95 ${activeSession?.mode === m ? `${currentTheme.colors.accentBg} ${currentTheme.colors.text} ${currentTheme.colors.border}` : 'bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-600'}`}>
+                                {m}
+                            </button>
+                        ))}
                     </div>
                 </div>
-                <div className="flex-1 p-4 overflow-y-auto">
-                    <div className="space-y-4">
-                        {activeSession?.messages.map((msg) => (
-                            <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className="group relative max-w-lg lg:max-w-2xl">
-                                    <div className={`px-4 py-2 rounded-lg ${msg.sender === 'user' ? 'bg-red-600' : 'bg-gray-800'}`}>
-                                        {(msg.attachments && msg.attachments.length > 0) && (
-                                            <MessageAttachments attachments={msg.attachments} sender={msg.sender}/>
-                                        )}
-                                        {msg.mediaUrl && (!msg.attachments || msg.attachments.length === 0) && (
-                                            <div className="mb-2">
-                                                {msg.mediaType?.startsWith('image/') ? (
-                                                    <img src={msg.mediaUrl} alt="Media" className="rounded-lg max-h-96" />
-                                                ) : (
-                                                    <video src={msg.mediaUrl} controls className="rounded-lg max-h-96" />
-                                                )}
-                                            </div>
-                                        )}
-                                        {msg.text && renderMessageContent(msg)}
-                                        {msg.sender === 'ai' && (
-                                            <div className="mt-2 flex items-center justify-between">
-                                                {msg.text && (
-                                                <button onClick={() => handleTtsToggle(msg.id, msg.text)} className="text-gray-400 hover:text-white transition w-5 h-5 flex items-center justify-center" aria-label="Escuchar o pausar mensaje">
-                                                    {ttsState.messageId === msg.id && ttsState.status === 'LOADING' ? (
-                                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                        </svg>
-                                                    ) : ttsState.messageId === msg.id && ttsState.status === 'PLAYING' ? (
-                                                        <PauseIcon className="h-5 w-5" />
-                                                    ) : (
-                                                        <SoundIcon className="h-5 w-5" />
-                                                    )}
-                                                </button>
-                                                )}
-                                                {msg.sources && msg.sources.length > 0 && (
-                                                    <div className="text-xs text-gray-400 ml-4">
-                                                        <h4 className="font-bold">Fuentes:</h4>
-                                                        <ul className="list-disc list-inside">
-                                                            {msg.sources.map((source, i) => (<li key={i}><a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-red-400 hover:underline">{source.title || source.uri}</a></li>))}
-                                                        </ul>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                    {activeSession?.messages.map(msg => (
+                        <div key={msg.id} className={`flex flex-col animate-fadeIn ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                            <div className={`max-w-[85%] md:max-w-[70%] p-4 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl ${msg.sender === 'user' ? `${currentTheme.colors.userBubble} text-white rounded-tr-none` : 'bg-zinc-900 border border-white/10 text-zinc-100 rounded-tl-none'}`}>
+                                {msg.mediaUrl && <img src={msg.mediaUrl} className="mb-3 rounded-lg max-h-64 w-full object-cover animate-scaleIn" />}
+                                {msg.attachments && msg.attachments.length > 0 && (
+                                    <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
+                                        {msg.attachments.map((a, i) => (
+                                            <img key={i} src={a.url} className="h-20 w-20 rounded-lg object-cover border border-white/10 animate-scaleIn" style={{animationDelay: `${i * 50}ms`}} />
+                                        ))}
                                     </div>
-                                    {msg.text && (
-                                        <button 
-                                            onClick={() => handleCopyToClipboard(msg.text)} 
-                                            className={`absolute top-2 right-2 p-1.5 bg-gray-900/50 text-gray-300 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${msg.sender === 'user' ? 'bg-red-800/50' : ''}`}
-                                            aria-label="Copiar mensaje"
-                                        >
-                                            <CopyIcon className="w-4 h-4" />
+                                )}
+                                <div className="prose prose-invert prose-sm max-w-none">
+                                    {renderMessageText(msg.text)}
+                                </div>
+                                {msg.sender === 'ai' && (
+                                    <div className="mt-3 flex items-center gap-3 pt-2 border-t border-white/5">
+                                        <button onClick={() => handleTts(msg.id, msg.text)} className="text-zinc-500 hover:text-white transition-all active:scale-90">
+                                            {ttsState.messageId === msg.id && ttsState.status === 'LOADING' ? <LoadingSpinner /> : (ttsState.messageId === msg.id && ttsState.status === 'PLAYING' ? <PauseIcon className="w-4 h-4"/> : <SoundIcon className="w-4 h-4"/>)}
                                         </button>
-                                    )}
+                                        <button onClick={() => navigator.clipboard.writeText(msg.text)} className="text-zinc-500 hover:text-white transition-all active:scale-90"><CopyIcon className="w-4 h-4"/></button>
+                                    </div>
+                                )}
+                                {msg.sources && msg.sources.length > 0 && (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {msg.sources.map((s, i) => (
+                                            <a key={i} href={s.uri} target="_blank" className={`text-xs bg-black/30 px-2 py-1 rounded hover:bg-black/50 ${currentTheme.colors.text.replace('text-', 'text-').replace('500', '300')} truncate max-w-[200px] block transition-colors active:scale-95`}>{s.title}</a>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Related Suggestions Below AI Response */}
+                            {msg.sender === 'ai' && msg.suggestions && msg.suggestions.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-2 max-w-[85%] md:max-w-[70%] justify-start animate-fadeIn delay-300">
+                                    {msg.suggestions.map((s, i) => (
+                                        <button 
+                                            key={i}
+                                            onClick={() => handleSend(s)}
+                                            className={`text-xs px-3 py-1.5 rounded-full border bg-black/20 hover:bg-white/10 transition-all active:scale-95 text-zinc-400 hover:text-white ${currentTheme.colors.border.replace('border-', 'hover:border-')} border-white/10`}
+                                        >
+                                            {s}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                    {isLoading && <div className="flex justify-start animate-fadeIn"><div className={`bg-zinc-900 p-4 rounded-2xl rounded-tl-none border border-white/10 flex gap-2`}><div className={`w-2 h-2 ${currentTheme.colors.primary.replace('bg-', 'bg-')} rounded-full animate-bounce`}></div><div className={`w-2 h-2 ${currentTheme.colors.primary.replace('bg-', 'bg-')} rounded-full animate-bounce delay-75`}></div><div className={`w-2 h-2 ${currentTheme.colors.primary.replace('bg-', 'bg-')} rounded-full animate-bounce delay-150`}></div></div></div>}
+                    <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input Area - Unified Container */}
+                <div className="p-4 border-t border-white/5 bg-black/20 backdrop-blur-sm">
+                    <div 
+                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                        onDrop={handleDrop}
+                        className={`max-w-4xl mx-auto bg-zinc-900 border rounded-[24px] p-2 transition-all shadow-lg flex flex-col gap-2 relative ${
+                            isDragging 
+                                ? `${currentTheme.colors.border} ring-2 ${currentTheme.colors.ring} bg-zinc-800` 
+                                : `border-zinc-800 focus-within:ring-2 focus-within:${currentTheme.colors.ring} focus-within:border-transparent`
+                        }`}
+                    >
+                         {isDragging && (
+                            <div className={`absolute inset-0 rounded-[24px] ${currentTheme.colors.accentBg} flex items-center justify-center z-20 backdrop-blur-sm pointer-events-none animate-fadeIn`}>
+                                <div className="bg-black/80 px-6 py-3 rounded-full text-white font-medium flex items-center gap-3 border border-white/10 shadow-xl">
+                                     <PaperclipIcon className={`w-6 h-6 ${currentTheme.colors.text}`} /> 
+                                     <span className="text-sm">Soltar para adjuntar archivos</span>
                                 </div>
                             </div>
-                        ))}
-                        <div ref={messagesEndRef} />
-                    </div>
-                </div>
-                {error && <div className="p-4 text-center text-red-400 bg-red-900/50">{error}</div>}
-                <div className="p-4 border-t border-gray-700 bg-gray-800">
-                    {mediaPreviews.length > 0 && (
-                        <div className="mb-2 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-8 gap-2">
-                            {mediaPreviews.map((preview, index) => (
-                                <AttachmentPreview 
-                                    key={index}
-                                    attachment={preview}
-                                    onRemove={() => handleRemoveAttachment(index)}
-                                />
+                        )}
+
+                        {/* Intelligent Suggestions (Above Input) */}
+                        <div className="flex gap-2 px-3 pt-1 overflow-x-auto no-scrollbar animate-fadeIn items-center h-8">
+                            <SparklesIcon className={`w-4 h-4 flex-shrink-0 ${currentTheme.colors.text} opacity-70`} />
+                            {suggestions.map((s, i) => (
+                                <button 
+                                    key={i}
+                                    onClick={() => handleSuggestionClick(s)}
+                                    className={`text-xs whitespace-nowrap px-3 py-1 rounded-full bg-black/40 border border-white/5 hover:bg-white/10 ${currentTheme.colors.hover.replace('bg-', 'text-')} transition-all active:scale-95 text-zinc-400`}
+                                >
+                                    {s}
+                                </button>
                             ))}
                         </div>
-                    )}
-                    <div className="relative flex items-center">
-                        <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*,audio/*,.pdf,.txt,.csv,.md" multiple className="hidden" />
-                        <button onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-white transition rounded-full hover:bg-gray-700" aria-label="Adjuntar archivo">
-                            <PaperclipIcon className="w-6 h-6" />
-                        </button>
-                         <button onClick={handleToggleRecording} className={`p-3 text-gray-400 hover:text-white transition rounded-full hover:bg-gray-700 ${isRecording ? 'animate-pulse' : ''}`} aria-label="Usar micrófono">
-                            <MicIcon className={`w-6 h-6 ${isRecording ? 'text-red-500' : ''}`} />
-                        </button>
-                        <textarea
-                            rows={1}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-                            placeholder="Escribe un mensaje o adjunta archivos..."
-                            className="w-full bg-gray-700 text-white rounded-2xl py-3 pl-4 pr-16 focus:outline-none focus:ring-2 focus:ring-red-500 resize-none max-h-40"
-                            disabled={isLoading}
-                        />
-                        <button onClick={handleSend} disabled={isLoading || (!input.trim() && attachedFiles.length === 0)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 disabled:bg-gray-500 transition">
-                            {isLoading ? <LoadingSpinner /> : <SendIcon className="h-5 w-5" />}
-                        </button>
+
+                        {/* Detected Link Indicator */}
+                        {detectedLink && (
+                            <div className="px-3 pt-1 animate-fadeIn">
+                                <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/40 border border-white/10 text-xs ${currentTheme.colors.text}`}>
+                                    <LinkIcon className="w-3 h-3" />
+                                    <span className="font-medium truncate max-w-[200px]">🔗 Enlace detectado: Análisis activado</span>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Media Previews Inside Input Area */}
+                        {mediaPreviews.length > 0 && (
+                            <div className="flex gap-2 px-2 pt-2 overflow-x-auto no-scrollbar animate-fadeIn">
+                                {mediaPreviews.map((p, i) => (
+                                    <AttachmentPreview 
+                                        key={i} 
+                                        attachment={p} 
+                                        onRemove={() => { 
+                                            setMediaPreviews(prev => prev.filter((_, idx) => idx !== i)); 
+                                            setAttachedFiles(prev => prev.filter((_, idx) => idx !== i)); 
+                                        }} 
+                                    />
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => fileInputRef.current?.click()} className="p-2 text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all active:scale-90" title="Adjuntar">
+                                <PaperclipIcon className="w-5 h-5"/>
+                            </button>
+                            <button onClick={toggleListening} className={`p-2 rounded-full transition-all active:scale-90 ${isListening ? `${currentTheme.colors.text} ${currentTheme.colors.secondary} animate-pulse` : 'text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700'}`} title="Dictar">
+                                <MicIcon className="w-5 h-5"/>
+                            </button>
+                            <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
+
+                            <input 
+                                value={input} 
+                                onChange={e => setInput(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleSend()}
+                                placeholder={isListening ? "Escuchando..." : `Enviar mensaje a Arens IA (${activeSession?.mode})...`}
+                                className="flex-1 bg-transparent border-none text-white focus:outline-none focus:ring-0 px-2 py-2 placeholder-zinc-500"
+                            />
+
+                            <button onClick={() => handleSend()} disabled={!input && !attachedFiles.length} className={`p-2 text-white rounded-full disabled:bg-zinc-700 disabled:text-zinc-500 transition-all shadow-lg active:scale-90 ${currentTheme.colors.sendButton}`}>
+                                {isLoading ? <LoadingSpinner /> : <SendIcon className="w-5 h-5" />}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

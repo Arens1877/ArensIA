@@ -1,20 +1,22 @@
+
 import { Content, Part } from '@google/genai';
 
 export enum Tab {
   CHAT = 'Chat',
-  IMAGE_GEN = 'Generar Imagen',
+  IMAGE_GEN = 'Crear Imagen',
   IMAGE_EDIT = 'Editar Imagen',
-  VIDEO_GEN = 'Generar Video',
-  VISION = 'Análisis de Visión',
-  LIVE = 'Conversación en Vivo',
+  VIDEO_GEN = 'Crear Video',
+  VISION = 'Visión',
+  LIVE = 'Live',
+  YOUTUBE = 'YouTube',
 }
 
 export enum ChatMode {
   STANDARD = 'Estándar',
-  LOW_LATENCY = 'Baja Latencia',
-  COMPLEX = 'Complejo (Pensando)',
-  WEB_SEARCH = 'Búsqueda Web',
-  MAPS_SEARCH = 'Búsqueda en Mapas',
+  LOW_LATENCY = 'Flash Lite',
+  COMPLEX = 'Pro (Pensando)',
+  WEB_SEARCH = 'Búsqueda',
+  MAPS_SEARCH = 'Mapas',
   CANVAS = 'Canvas',
 }
 
@@ -30,11 +32,10 @@ export interface Message {
   text: string;
   sources?: GroundingSource[];
   attachments?: Attachment[];
-  // Los campos antiguos se mantienen para la retrocompatibilidad con el historial de localStorage
   mediaUrl?: string;
   mediaType?: string;
+  suggestions?: string[];
 }
-
 
 export interface GroundingSource {
   title: string;
@@ -48,7 +49,18 @@ export interface ChatSession {
   history: Content[];
   mode: ChatMode;
   createdAt: number;
+  isFavorite?: boolean;
 }
 
-export type AspectRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
+export interface YouTubeVideo {
+  id: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  channelTitle: string;
+  publishTime: string;
+}
+
+export type AspectRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "21:9";
 export type VideoAspectRatio = "16:9" | "9:16";
+export type ImageSize = "1K" | "2K" | "4K";
