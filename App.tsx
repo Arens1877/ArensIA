@@ -57,7 +57,7 @@ const App: React.FC = () => {
   ];
 
   return (
-    <div className={`flex h-screen bg-gradient-to-b ${currentTheme.colors.gradient} text-white overflow-hidden transition-colors duration-500`}>
+    <div className={`flex h-screen supports-[height:100dvh]:h-[100dvh] bg-gradient-to-b ${currentTheme.colors.gradient} text-white overflow-hidden transition-colors duration-500`}>
       {showTutorial && <Tutorial onClose={handleCloseTutorial} />}
       <ThemeSelector isOpen={showThemeSelector} onClose={() => setShowThemeSelector(false)} />
       
@@ -109,7 +109,7 @@ const App: React.FC = () => {
       </aside>
 
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-md border-b border-white/10 z-50 flex items-center justify-between px-4">
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-md border-b border-white/10 z-50 flex items-center justify-between px-4 safe-top">
          <div className="flex items-center gap-2">
              <div className={`w-8 h-8 bg-gradient-to-br ${currentTheme.colors.userBubble} rounded-lg flex items-center justify-center`}>
                 <span className="font-bold text-white">A</span>
@@ -128,7 +128,7 @@ const App: React.FC = () => {
 
       {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 bg-black/95 z-40 pt-20 px-6 animate-fadeIn overflow-y-auto pb-6">
+        <div className="md:hidden fixed inset-0 bg-black/95 z-40 pt-20 px-6 animate-fadeIn overflow-y-auto pb-10 safe-bottom">
             <div className="grid grid-cols-2 gap-4">
                 {tabs.map((tab) => (
                     <button

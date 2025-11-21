@@ -188,53 +188,53 @@ const LiveConversation: React.FC = () => {
     return (
         <div className="h-full flex flex-col items-center justify-center bg-black relative overflow-hidden">
             {/* Background Ambient Light */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] blur-[120px] rounded-full transition-all duration-300 ${isActive ? (isInterrupted ? 'bg-orange-500/30 scale-90' : 'bg-red-600/20 scale-100 opacity-100') : 'bg-red-600/5 opacity-20 scale-50'}`}></div>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] md:w-[500px] h-[300px] md:h-[500px] blur-[80px] md:blur-[120px] rounded-full transition-all duration-300 ${isActive ? (isInterrupted ? 'bg-orange-500/30 scale-90' : 'bg-red-600/20 scale-100 opacity-100') : 'bg-red-600/5 opacity-20 scale-50'}`}></div>
 
-            {/* Main Container with more width for subtitles */}
-            <div className="relative z-10 flex flex-col items-center w-full max-w-3xl px-6 h-full justify-between py-10 md:py-14">
+            {/* Main Container */}
+            <div className="relative z-10 flex flex-col items-center w-full max-w-3xl px-4 md:px-6 h-full justify-between py-6 md:py-14">
                 
                 {/* Controls Section (Centered) */}
-                <div className="flex-1 flex flex-col items-center justify-center w-full max-w-md">
-                    <div className="flex gap-2 mb-12">
+                <div className="flex-1 flex flex-col items-center justify-center w-full max-w-md min-h-0">
+                    <div className="flex flex-wrap justify-center gap-2 mb-6 md:mb-12 w-full">
                         {availableVoices.map(v => (
-                            <button key={v} onClick={() => setVoice(v)} disabled={isActive} className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-full transition-all border ${voice === v ? 'bg-white text-black border-white' : 'bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-600'}`}>
+                            <button key={v} onClick={() => setVoice(v)} disabled={isActive} className={`px-3 py-1.5 md:px-4 md:py-2 text-[10px] md:text-xs font-bold uppercase tracking-widest rounded-full transition-all border ${voice === v ? 'bg-white text-black border-white' : 'bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-600'}`}>
                                 {v}
                             </button>
                         ))}
                     </div>
 
                     {/* Visualizer */}
-                    <div className="h-32 flex items-end gap-1 mb-12">
+                    <div className="h-20 md:h-32 flex items-end gap-1 mb-8 md:mb-12">
                         {visualizerData.map((h, i) => (
-                            <div key={i} className={`w-3 rounded-t-full transition-all duration-75 ${isInterrupted ? 'bg-orange-500' : 'bg-gradient-to-t from-red-600 to-red-400'}`} style={{ height: isActive ? `${Math.max(10, h)}%` : '10%', opacity: isActive ? 1 : 0.3 }}></div>
+                            <div key={i} className={`w-2 md:w-3 rounded-t-full transition-all duration-75 ${isInterrupted ? 'bg-orange-500' : 'bg-gradient-to-t from-red-600 to-red-400'}`} style={{ height: isActive ? `${Math.max(10, h)}%` : '10%', opacity: isActive ? 1 : 0.3 }}></div>
                         ))}
                     </div>
 
                     <button
                         onClick={isActive ? stop : start}
                         disabled={isConnecting}
-                        className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${isActive ? 'bg-white text-red-600 scale-110 shadow-white/20' : 'bg-red-600 text-white hover:scale-105 shadow-red-900/50'}`}
+                        className={`w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${isActive ? 'bg-white text-red-600 scale-110 shadow-white/20' : 'bg-red-600 text-white hover:scale-105 shadow-red-900/50'}`}
                     >
-                        {isConnecting ? <div className="animate-spin w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full"></div> : <MicIcon className="w-10 h-10" />}
+                        {isConnecting ? <div className="animate-spin w-6 h-6 md:w-8 md:h-8 border-4 border-red-600 border-t-transparent rounded-full"></div> : <MicIcon className="w-8 h-8 md:w-10 md:h-10" />}
                     </button>
 
-                    <div className="mt-8 flex flex-col items-center gap-2">
-                        <p className="text-zinc-400 font-light tracking-wider uppercase text-sm">
+                    <div className="mt-6 md:mt-8 flex flex-col items-center gap-2">
+                        <p className="text-zinc-400 font-light tracking-wider uppercase text-xs md:text-sm text-center">
                             {isConnecting ? 'Conectando...' : isActive ? (isInterrupted ? 'Escuchando...' : 'En vivo con Gemini') : 'Toca para hablar'}
                         </p>
-                        {isActive && <p className="text-xs text-zinc-600">Puedes interrumpirme cuando quieras</p>}
+                        {isActive && <p className="text-[10px] md:text-xs text-zinc-600 text-center">Puedes interrumpirme cuando quieras</p>}
                     </div>
 
-                    {error && <div className="mt-4 text-red-500 bg-red-950/30 px-4 py-2 rounded-lg border border-red-900/50 text-sm">{error}</div>}
+                    {error && <div className="mt-4 text-red-500 bg-red-950/30 px-4 py-2 rounded-lg border border-red-900/50 text-xs md:text-sm max-w-full text-center">{error}</div>}
                 </div>
 
                 {/* Subtitles Area - Dynamic and Scrollable */}
-                <div className="w-full flex items-end justify-center min-h-[60px]">
+                <div className="w-full flex items-end justify-center min-h-[60px] shrink-0 z-20">
                     {isActive && captions && (
-                         <div className="text-center animate-fadeIn transition-all duration-300 ease-out w-full max-w-3xl bg-black/60 backdrop-blur-md p-6 rounded-3xl border border-white/10 shadow-2xl max-h-[35vh] overflow-y-auto custom-scrollbar">
-                            <p className="text-xl md:text-2xl font-medium text-white/90 drop-shadow-lg leading-relaxed whitespace-pre-wrap">
+                         <div className="text-center animate-fadeIn transition-all duration-300 ease-out w-full max-w-3xl bg-black/60 backdrop-blur-md p-4 md:p-6 rounded-2xl md:rounded-3xl border border-white/10 shadow-2xl max-h-[30vh] md:max-h-[35vh] overflow-y-auto custom-scrollbar">
+                            <p className="text-lg md:text-2xl font-medium text-white/90 drop-shadow-lg leading-relaxed whitespace-pre-wrap">
                                 {captions}
-                                <span className="inline-block w-2 h-6 ml-1 align-middle bg-red-500 animate-pulse rounded-full"></span>
+                                <span className="inline-block w-1.5 h-5 md:w-2 md:h-6 ml-1 align-middle bg-red-500 animate-pulse rounded-full"></span>
                             </p>
                          </div>
                     )}

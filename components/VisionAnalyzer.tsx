@@ -64,7 +64,7 @@ const VisionAnalyzer: React.FC = () => {
                 <h2 className="text-3xl font-bold text-center mb-2 text-red-500">Análisis de Visión</h2>
                 <p className="text-center text-gray-400 mb-8">Comprende el contenido de tus imágenes y videos.</p>
 
-                <div className="flex flex-col items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-8 min-h-[300px]">
+                <div className="flex flex-col items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-4 md:p-8 min-h-[200px] md:min-h-[300px]">
                     {mediaPreview ? (
                         file?.type.startsWith('image/') ? (
                             <img src={mediaPreview} alt="Preview" className="max-w-full max-h-80 object-contain rounded-md"/>

@@ -48,8 +48,8 @@ const ImageEditor: React.FC = () => {
                 <h2 className="text-3xl font-bold text-center mb-2 text-red-500">Editor de Imágenes</h2>
                 <p className="text-center text-gray-400 mb-8">Modifica tus imágenes con comandos descriptivos.</p>
 
-                <div className="grid md:grid-cols-2 gap-8 items-start">
-                    <div className="flex flex-col items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-8 h-full">
+                <div className="grid md:grid-cols-2 gap-4 md:gap-8 items-start">
+                    <div className="flex flex-col items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-4 md:p-8 h-full">
                         {originalImage ? (
                             <img src={originalImage} alt="Original" className="max-w-full max-h-96 object-contain rounded-md"/>
                         ) : (
@@ -63,7 +63,7 @@ const ImageEditor: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className="flex flex-col items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-8 h-full">
+                    <div className="flex flex-col items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-4 md:p-8 h-full">
                         {isLoading && <div className="flex flex-col items-center"><LoadingSpinner/><p className="mt-2">Editando...</p></div>}
                         {!isLoading && editedImage && (
                             <div className="text-center">

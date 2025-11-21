@@ -411,7 +411,7 @@ const Chat: React.FC = () => {
                 </div>
 
                 {/* Input Area - Unified Container */}
-                <div className="p-4 border-t border-white/5 bg-black/20 backdrop-blur-sm">
+                <div className="p-2 md:p-4 border-t border-white/5 bg-black/20 backdrop-blur-sm">
                     <div 
                         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                         onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
