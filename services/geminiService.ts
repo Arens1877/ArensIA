@@ -8,7 +8,7 @@ const getAi = () => {
         if (!process.env.API_KEY) {
             throw new Error("La variable de entorno API_KEY no está configurada");
         }
-        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
     }
     return ai;
 };
