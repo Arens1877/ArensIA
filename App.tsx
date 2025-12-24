@@ -53,7 +53,7 @@ const App: React.FC = () => {
     { id: Tab.VIDEO_GEN, icon: VideoIcon, label: 'Crear Video' },
     { id: Tab.VISION, icon: VisionIcon, label: 'Visión' },
     { id: Tab.LIVE, icon: MicIcon, label: 'Live' },
-    { id: Tab.YOUTUBE, icon: YouTubeIcon, label: 'YouTube' },
+    { id: Tab.YOUTUBE, icon: YouTubeIcon, label: 'YouTube Explorer' },
   ];
 
   return (
@@ -62,12 +62,12 @@ const App: React.FC = () => {
       <ThemeSelector isOpen={showThemeSelector} onClose={() => setShowThemeSelector(false)} />
       
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 bg-zinc-900/50 border-r border-white/5 backdrop-blur-xl z-20">
-        <div className="p-6 flex items-center gap-3">
-          <div className={`w-8 h-8 bg-gradient-to-br ${currentTheme.colors.userBubble} rounded-lg flex items-center justify-center shadow-lg transition-all duration-300`}>
-             <span className="font-bold text-lg">A</span>
+      <aside className="hidden md:flex flex-col w-72 bg-zinc-900/50 border-r border-white/5 backdrop-blur-xl z-20">
+        <div className="p-8 flex items-center gap-3">
+          <div className={`w-10 h-10 bg-gradient-to-br ${currentTheme.colors.userBubble} rounded-xl flex items-center justify-center shadow-lg transition-all duration-300`}>
+             <span className="font-bold text-xl">A</span>
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Arens <span className={`${currentTheme.colors.text} transition-colors duration-300`}>IA</span></h1>
+          <h1 className="text-2xl font-bold tracking-tighter">Arens <span className={`${currentTheme.colors.text} transition-colors duration-300`}>IA</span></h1>
         </div>
         
         <nav className="flex-1 px-4 space-y-1 overflow-y-auto no-scrollbar">
@@ -100,16 +100,16 @@ const App: React.FC = () => {
                 href="https://youtube.com/@arens1877"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center px-4 py-3 text-sm font-medium text-zinc-400 rounded-xl hover:bg-white/5 hover:text-white transition-all active:scale-95 group"
+                className="flex items-center px-4 py-3 text-sm font-bold text-zinc-300 rounded-xl bg-red-600/10 border border-red-600/20 hover:bg-red-600 hover:text-white transition-all active:scale-95 group"
             >
-                <YouTubeIcon className={`w-5 h-5 mr-3 ${currentTheme.colors.text} group-hover:scale-110 transition-transform`} />
+                <YouTubeIcon className={`w-5 h-5 mr-3 text-red-500 group-hover:text-white group-hover:scale-110 transition-all`} />
                 Canal del Creador
             </a>
         </div>
       </aside>
 
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-md border-b border-white/10 z-50 flex items-center justify-between px-4 safe-top">
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-md border-b border-white/10 z-50 flex items-center justify-between px-4">
          <div className="flex items-center gap-2">
              <div className={`w-8 h-8 bg-gradient-to-br ${currentTheme.colors.userBubble} rounded-lg flex items-center justify-center`}>
                 <span className="font-bold text-white">A</span>
@@ -128,7 +128,7 @@ const App: React.FC = () => {
 
       {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 bg-black/95 z-40 pt-20 px-6 animate-fadeIn overflow-y-auto pb-10 safe-bottom">
+        <div className="md:hidden fixed inset-0 bg-black/95 z-40 pt-20 px-6 animate-fadeIn overflow-y-auto pb-10">
             <div className="grid grid-cols-2 gap-4">
                 {tabs.map((tab) => (
                     <button
@@ -146,10 +146,10 @@ const App: React.FC = () => {
                     href="https://youtube.com/@arens1877"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="col-span-2 flex items-center justify-center p-4 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-all active:scale-95 mt-2"
+                    className="col-span-2 flex items-center justify-center p-4 rounded-2xl border border-red-600/30 bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white transition-all active:scale-95 mt-2"
                 >
-                    <YouTubeIcon className={`w-6 h-6 mr-3 ${currentTheme.colors.text}`} />
-                    <span className="font-medium">Canal del Creador</span>
+                    <YouTubeIcon className={`w-6 h-6 mr-3`} />
+                    <span className="font-bold">Canal del Creador</span>
                 </a>
             </div>
         </div>

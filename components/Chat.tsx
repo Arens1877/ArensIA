@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Message, ChatMode, ChatSession, Attachment } from '../types';
 import { generateChatResponse, generateSpeech } from '../services/geminiService';
-import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon, FileIcon, MicIcon, MenuIcon, CopyIcon, PauseIcon, TrashIcon, PlusIcon, LinkIcon, SparklesIcon, StarIcon } from './icons';
+import { LoadingSpinner, SendIcon, SoundIcon, PaperclipIcon, XCircleIcon, FileIcon, MicIcon, MenuIcon, CopyIcon, PauseIcon, TrashIcon, PlusIcon, LinkIcon, SparklesIcon, StarIcon, XIcon } from './icons';
 import { decode, decodeAudioData, fileToBase64 } from '../utils/helpers';
 import { Part } from '@google/genai';
 import CanvasRenderer from './CanvasRenderer';
@@ -21,14 +21,48 @@ const createNewSession = (mode: ChatMode = ChatMode.STANDARD): ChatSession => ({
 });
 
 const AttachmentPreview: React.FC<{ attachment: Attachment; onRemove: () => void }> = ({ attachment, onRemove }) => {
-    const renderContent = () => {
-        if (attachment.type.startsWith('image/')) return <img src={attachment.url} alt={attachment.name} className="w-full h-full object-cover rounded-xl" />;
-        return <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-800 rounded-xl"><FileIcon className="w-6 h-6 text-zinc-400" /></div>;
-    };
+    const isImage = attachment.type.startsWith('image/');
+    const isUploading = attachment.status === 'uploading';
+    const isError = attachment.status === 'error';
+
     return (
-        <div className="relative w-16 h-16 group animate-scaleIn flex-shrink-0">
-            {renderContent()}
-            <button onClick={onRemove} className="absolute -top-2 -right-2 bg-zinc-900 border border-zinc-700 rounded-full p-0.5 text-zinc-400 hover:text-red-500 transition-colors shadow-lg active:scale-90 z-10">
+        <div className="relative w-16 h-16 md:w-20 md:h-20 group animate-scaleIn flex-shrink-0">
+            {isImage ? (
+                <img src={attachment.url} alt={attachment.name} className={`w-full h-full object-cover rounded-2xl border border-white/10 ${isUploading ? 'opacity-40 grayscale' : ''}`} />
+            ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-800 rounded-2xl border border-white/10">
+                    <FileIcon className={`w-6 h-6 ${isUploading ? 'text-zinc-600' : 'text-zinc-400'}`} />
+                    <span className="text-[8px] truncate w-full px-1 text-center text-zinc-500 mt-1">{attachment.name}</span>
+                </div>
+            )}
+            
+            {/* Progress Overlay */}
+            {isUploading && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-8 h-8 md:w-10 md:h-10 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    {attachment.progress !== undefined && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[8px] font-bold text-white">{Math.round(attachment.progress)}%</span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Error Overlay */}
+            {isError && (
+                <div className="absolute inset-0 bg-red-950/60 flex items-center justify-center rounded-2xl border border-red-500/50">
+                    <XCircleIcon className="w-6 h-6 text-white" />
+                </div>
+            )}
+
+            {/* Status Bar */}
+            {isUploading && (
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-700 rounded-full overflow-hidden mx-1 mb-1">
+                    <div className="h-full bg-white transition-all duration-300" style={{ width: `${attachment.progress || 10}%` }}></div>
+                </div>
+            )}
+
+            <button onClick={onRemove} className="absolute -top-2 -right-2 bg-zinc-900 border border-zinc-700 rounded-full p-1 text-zinc-400 hover:text-red-500 transition-colors shadow-lg active:scale-90 z-10 backdrop-blur-md">
                 <XCircleIcon className="w-4 h-4" />
             </button>
         </div>
@@ -36,59 +70,49 @@ const AttachmentPreview: React.FC<{ attachment: Attachment; onRemove: () => void
 };
 
 const getSmartSuggestions = (input: string): string[] => {
-    const lower = input.toLowerCase();
+    const lower = input.toLowerCase().trim();
     
-    if (!input.trim()) {
-        return [
-            "Sorpréndeme con un dato elegante 🧐",
-            "Genera una imagen surrealista 🎨",
-            "Analiza las tendencias actuales 🍷"
-        ];
-    }
+    // Si el input está vacío, sugerencias genéricas elegantes
+    if (!lower) return [
+        "Sorpréndeme 🧐", 
+        "Crea una imagen 🎨", 
+        "Búsqueda elegante 🍷", 
+        "¿Qué puedes hacer?"
+    ];
 
-    if (lower.includes('imagen') || lower.includes('foto') || lower.includes('pintura')) {
-        return [
-            "Genera una imagen fotorrealista 4K",
-            "Crea un paisaje cyberpunk neón",
-            "Diseña un logotipo minimalista"
-        ];
-    }
-
-    if (lower.includes('video') || lower.includes('película')) {
-        return [
-            "Crea un guion cinematográfico",
-            "Genera un prompt para un video épico",
-            "Explícame cómo hacer transiciones suaves"
-        ];
-    }
-
-    if (lower.includes('código') || lower.includes('program') || lower.includes('react') || lower.includes('js')) {
-        return [
-            "Genera un componente de React moderno",
-            "Optimiza este algoritmo con elegancia",
-            "Explica este concepto de programación"
-        ];
-    }
-
-    if (lower.includes('hola') || lower.includes('buenos') || lower.includes('saludo')) {
-        return [
-            "Saludos cordiales, Arens 🍷",
-            "Hola, distinguida inteligencia",
-            "¿Cómo te encuentras hoy?"
-        ];
-    }
-
-    if (lower.includes('explica') || lower.includes('qué es') || lower.includes('resumen')) {
-        return [
-            "Explícame esto con detalle y sofisticación",
-            "Dame un resumen ejecutivo breve",
-            "Analiza los puntos clave"
-        ];
+    // Sugerencias basadas en palabras clave específicas
+    if (lower.includes('imagen') || lower.includes('dibuja') || lower.includes('foto')) {
+        return ["Fotorrealista 4K 📷", "Cyberpunk neón 🌃", "Óleo renacentista 🖼️", "Logotipo minimalista"];
     }
     
-    return [];
+    if (lower.includes('hola') || lower.includes('saludos') || lower.includes('buenos')) {
+        return ["Saludos, Arens 🍷", "¿Cómo va tu día? 🧐", "Dime un dato curioso", "Hablemos de arte"];
+    }
+
+    if (lower.includes('codigo') || lower.includes('programar') || lower.includes('html') || lower.includes('crea')) {
+        return ["Crea un botón CSS ✨", "Explica React ⚛️", "Refactoriza esto 🧐", "Algoritmo elegante"];
+    }
+
+    if (lower.includes('video') || lower.includes('peli') || lower.includes('cine')) {
+        return ["Genera un video corto 🎬", "Recomienda cine clásico", "Guion cinematográfico", "Efectos visuales"];
+    }
+
+    if (lower.includes('donde') || lower.includes('lugar') || lower.includes('mapa') || lower.includes('cerca')) {
+        return ["Restaurantes gourmet 🍷", "Monumentos en París 🗼", "Clima local 🧐", "Rutas turísticas"];
+    }
+
+    if (lower.includes('resumen') || lower.includes('lee') || lower.includes('texto')) {
+        return ["Resume en puntos ✍️", "Análisis crítico 🧐", "Traduce al inglés 🍷", "Simplifica el texto"];
+    }
+
+    // Sugerencias por defecto si hay texto pero no coincide con categorías
+    return [
+        "Explica esto mejor 🧐", 
+        "Resume con elegancia 🍷", 
+        "¿Qué opinas tú?", 
+        "Dame más detalles"
+    ];
 };
-
 
 const Chat: React.FC = () => {
     const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -101,30 +125,23 @@ const Chat: React.FC = () => {
     const [mediaPreviews, setMediaPreviews] = useState<Attachment[]>([]);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [ttsState, setTtsState] = useState<{ messageId: string | null; status: 'PLAYING' | 'PAUSED' | 'LOADING' | 'STOPPED' }>({ messageId: null, status: 'STOPPED' });
+    const [visibleCaptions, setVisibleCaptions] = useState<string>('');
     const [isListening, setIsListening] = useState(false);
-    const [isDragging, setIsDragging] = useState(false);
-    const [detectedLink, setDetectedLink] = useState<string | null>(null);
     const [suggestions, setSuggestions] = useState<string[]>([]);
     
     const { currentTheme } = useTheme();
-    
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const ttsSourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
     const recognitionRef = useRef<any>(null);
+    const captionIntervalRef = useRef<number | null>(null);
 
     useEffect(() => {
         const saved = localStorage.getItem(CHAT_SESSIONS_KEY);
         const parsed = saved ? JSON.parse(saved) : [];
-        if (parsed.length) {
-            setSessions(parsed);
-            setActiveSessionId(parsed[0].id);
-        } else {
-            const newS = createNewSession();
-            setSessions([newS]);
-            setActiveSessionId(newS.id);
-        }
+        if (parsed.length) { setSessions(parsed); setActiveSessionId(parsed[0].id); }
+        else { const newS = createNewSession(); setSessions([newS]); setActiveSessionId(newS.id); }
     }, []);
 
     useEffect(() => {
@@ -135,17 +152,9 @@ const Chat: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [sessions, activeSessionId, isLoading]);
 
-    // URL detection & Suggestion logic
-    useEffect(() => {
-        const urlRegex = /(https?:\/\/[^\s]+)/g;
-        const match = input.match(urlRegex);
-        if (match && match.length > 0) {
-            setDetectedLink(match[0]);
-        } else {
-            setDetectedLink(null);
-        }
-
-        setSuggestions(getSmartSuggestions(input));
+    // Actualización dinámica de sugerencias basándose en el input
+    useEffect(() => { 
+        setSuggestions(getSmartSuggestions(input)); 
     }, [input]);
 
     const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -154,25 +163,72 @@ const Chat: React.FC = () => {
         setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
     };
 
-    const toggleFavorite = (e: React.MouseEvent, id: string) => {
-        e.stopPropagation();
-        setSessions(prev => prev.map(s => s.id === id ? { ...s, isFavorite: !s.isFavorite } : s));
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files) return;
+        const newFiles = Array.from(e.target.files) as File[];
+        
+        const newPreviews: Attachment[] = newFiles.map(f => ({
+            name: f.name,
+            type: f.type,
+            url: URL.createObjectURL(f),
+            status: 'uploading',
+            progress: 0
+        }));
+
+        setAttachedFiles(prev => [...prev, ...newFiles]);
+        setMediaPreviews(prev => [...prev, ...newPreviews]);
+
+        for (let i = 0; i < newPreviews.length; i++) {
+            const index = mediaPreviews.length + i;
+            let currentProgress = 0;
+            const interval = setInterval(() => {
+                currentProgress += Math.random() * 30;
+                if (currentProgress >= 100) {
+                    currentProgress = 100;
+                    clearInterval(interval);
+                    setMediaPreviews(prev => prev.map((p, idx) => 
+                        idx === index ? { ...p, status: 'completed', progress: 100 } : p
+                    ));
+                } else {
+                    setMediaPreviews(prev => prev.map((p, idx) => 
+                        idx === index ? { ...p, progress: currentProgress } : p
+                    ));
+                }
+            }, 100);
+        }
     };
 
     const handleSend = async (textToSend?: string) => {
         const messageText = textToSend || input;
-        if ((!messageText.trim() && !attachedFiles.length) || isLoading || !activeSession) return;
+        const hasText = messageText.trim().length > 0;
+        const hasFiles = attachedFiles.length > 0;
+
+        if ((!hasText && !hasFiles) || isLoading || !activeSession) return;
         
-        const newMessage: Message = { id: crypto.randomUUID(), sender: 'user', text: messageText.trim(), attachments: mediaPreviews };
+        const newMessage: Message = { 
+            id: crypto.randomUUID(), 
+            sender: 'user', 
+            text: messageText.trim(), 
+            attachments: mediaPreviews.map(p => ({ ...p, status: 'completed' })) 
+        };
+        const currentFiles = [...attachedFiles];
         const updatedMessages = [...activeSession.messages, newMessage];
-        const isFirst = activeSession.messages.length <= 1;
         
-        updateSession(activeSession.id, { messages: updatedMessages, title: isFirst ? (messageText.substring(0, 30) || "Media") : activeSession.title });
-        setInput(''); setAttachedFiles([]); setMediaPreviews([]); setIsLoading(true); setError(null); setDetectedLink(null);
+        setInput(''); 
+        setAttachedFiles([]); 
+        setMediaPreviews([]); 
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setIsLoading(true); 
+        setError(null);
+
+        updateSession(activeSession.id, { 
+            messages: updatedMessages, 
+            title: activeSession.messages.length <= 1 ? (messageText.substring(0, 30) || "Media Content") : activeSession.title 
+        });
 
         try {
             const mediaParts: Part[] = [];
-            for (const file of attachedFiles) {
+            for (const file of currentFiles) {
                 const base64 = await fileToBase64(file);
                 mediaParts.push({ inlineData: { data: base64, mimeType: file.type } });
             }
@@ -187,94 +243,63 @@ const Chat: React.FC = () => {
             }
 
             const res = await generateChatResponse(newMessage.text, activeSession.history, activeSession.mode, location, mediaParts);
-            
-            const aiMsg: Message = { 
-                id: crypto.randomUUID(), 
-                sender: 'ai', 
-                text: res.text, 
-                sources: res.sources, 
-                mediaUrl: res.mediaUrl, 
-                mediaType: res.mediaType,
-                suggestions: res.suggestions
-            };
-
+            const aiMsg: Message = { id: crypto.randomUUID(), sender: 'ai', text: res.text, sources: res.sources, mediaUrl: res.mediaUrl, mediaType: res.mediaType, suggestions: res.suggestions };
             const userParts: Part[] = [{ text: newMessage.text }, ...mediaParts];
-            updateSession(activeSession.id, {
-                messages: [...updatedMessages, aiMsg],
-                history: [...activeSession.history, { role: 'user', parts: userParts }, { role: 'model', parts: res.historyParts }]
-            });
+            updateSession(activeSession.id, { messages: [...updatedMessages, aiMsg], history: [...activeSession.history, { role: 'user', parts: userParts }, { role: 'model', parts: res.historyParts }] });
         } catch (e: any) {
             setError(e.message);
-            updateSession(activeSession.id, { messages: [...updatedMessages, { id: crypto.randomUUID(), sender: 'ai', text: `Error: ${e.message}` }] });
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleSuggestionClick = (suggestion: string) => {
-        handleSend(suggestion);
-    };
-
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            const files = Array.from(e.target.files);
-            processFiles(files);
-        }
-    };
-
-    const processFiles = (files: File[]) => {
-        setAttachedFiles(prev => [...prev, ...files]);
-        const newPreviews = files.map(f => ({ name: f.name, type: f.type, url: URL.createObjectURL(f) }));
-        setMediaPreviews(prev => [...prev, ...newPreviews]);
-    };
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            processFiles(Array.from(e.dataTransfer.files));
-        }
-    };
-
     const toggleListening = () => {
-        if (isListening) {
-            recognitionRef.current?.stop();
-            setIsListening(false);
-            return;
-        }
-
+        if (isListening) { recognitionRef.current?.stop(); return; }
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         if (!SpeechRecognition) {
-            alert("Tu navegador no soporta la transcripción de voz.");
+            setError("Su navegador no parece soportar el reconocimiento de voz. Una verdadera lástima 🧐🍷.");
             return;
         }
-
         const recognition = new SpeechRecognition();
         recognition.lang = 'es-ES';
-        recognition.continuous = false;
-        recognition.interimResults = false;
-
         recognition.onstart = () => setIsListening(true);
         recognition.onend = () => setIsListening(false);
-        
-        recognition.onresult = (event: any) => {
-             const transcript = event.results[0][0].transcript;
-             setInput(prev => (prev ? prev + ' ' : '') + transcript);
-        };
-        
-        recognition.onerror = (event: any) => {
-            console.error("Speech recognition error", event.error);
-            setIsListening(false);
-        };
-
+        recognition.onresult = (e: any) => setInput(prev => (prev ? prev + ' ' : '') + e.results[0][0].transcript);
         recognitionRef.current = recognition;
         recognition.start();
+    };
+
+    const stopCaptions = () => {
+        if (captionIntervalRef.current) {
+            window.clearInterval(captionIntervalRef.current);
+            captionIntervalRef.current = null;
+        }
+        setVisibleCaptions('');
+    };
+
+    const startCaptions = (text: string, duration: number) => {
+        stopCaptions();
+        const words = text.split(' ');
+        const totalWords = words.length;
+        const timePerWord = (duration * 1000) / totalWords;
+        let currentWordIndex = 0;
+
+        captionIntervalRef.current = window.setInterval(() => {
+            if (currentWordIndex < totalWords) {
+                const start = Math.max(0, currentWordIndex - 4);
+                setVisibleCaptions(words.slice(start, currentWordIndex + 1).join(' '));
+                currentWordIndex++;
+            } else {
+                stopCaptions();
+            }
+        }, timePerWord);
     };
 
     const handleTts = async (id: string, text: string) => {
         if (ttsState.status === 'PLAYING' && ttsSourceNodeRef.current) {
             ttsSourceNodeRef.current.stop();
             setTtsState({ messageId: null, status: 'STOPPED' });
+            stopCaptions();
             return;
         }
         setTtsState({ messageId: id, status: 'LOADING' });
@@ -285,214 +310,155 @@ const Chat: React.FC = () => {
             const source = audioContextRef.current.createBufferSource();
             source.buffer = buffer;
             source.connect(audioContextRef.current.destination);
-            source.onended = () => setTtsState({ messageId: null, status: 'STOPPED' });
+            source.onended = () => {
+                setTtsState({ messageId: null, status: 'STOPPED' });
+                stopCaptions();
+            };
             source.start();
             ttsSourceNodeRef.current = source;
             setTtsState({ messageId: id, status: 'PLAYING' });
-        } catch (e) { console.error(e); setTtsState({ messageId: null, status: 'STOPPED' }); }
-    };
-
-    const renderMessageText = (text: string) => {
-        const codeBlockRegex = /```html\n([\s\S]*?)\n```/;
-        const match = activeSession?.mode === ChatMode.CANVAS ? text.match(codeBlockRegex) : null;
-        if (match) {
-            return <><p className="whitespace-pre-wrap mb-4">{text.replace(match[0], '')}</p><CanvasRenderer code={match[1]} /></>;
+            startCaptions(text, buffer.duration);
+        } catch (e: any) { 
+            setTtsState({ messageId: null, status: 'STOPPED' }); 
+            stopCaptions();
+            setError(e.message);
         }
-        return text.split('\n').map((line, i) => <p key={i} className="min-h-[1rem]">{line}</p>);
     };
-
-    // Sort sessions: Favorites first, then by date (assuming implicit order is date)
-    const sortedSessions = [...sessions].sort((a, b) => {
-        if (a.isFavorite === b.isFavorite) return 0;
-        return a.isFavorite ? -1 : 1;
-    });
 
     return (
-        <div className="flex h-full relative">
-            {/* History Sidebar / Drawer */}
-            <div className={`absolute md:relative z-20 bg-zinc-900/90 backdrop-blur border-r border-white/5 w-72 h-full transition-transform duration-300 ${isHistoryOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden'} flex flex-col`}>
-                 <div className="p-4 flex justify-between items-center border-b border-white/5">
-                    <h3 className="font-semibold text-zinc-300">Historial</h3>
-                    <button onClick={() => setIsHistoryOpen(false)} className="md:hidden text-zinc-400 hover:text-white active:scale-90 transition-transform"><XCircleIcon className="w-6 h-6"/></button>
+        <div className="flex h-full relative overflow-hidden">
+            {/* Overlay de Subtítulos Animados */}
+            {ttsState.status === 'PLAYING' && visibleCaptions && (
+                <div className="fixed bottom-32 md:bottom-40 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-6 pointer-events-none">
+                    <div className="bg-black/60 backdrop-blur-xl border border-white/10 px-8 py-5 rounded-[2rem] shadow-2xl animate-scaleIn text-center">
+                        <p className="text-xl md:text-2xl font-bold text-white tracking-tight leading-tight">
+                            {visibleCaptions}
+                            <span className={`inline-block ml-1 w-2 h-6 bg-red-600 animate-pulse align-middle`}></span>
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            <div className={`absolute md:relative z-20 bg-zinc-900/95 backdrop-blur-xl border-r border-white/5 w-72 h-full transition-transform duration-300 ${isHistoryOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0'} flex flex-col shadow-2xl`}>
+                 <div className="p-5 flex justify-between items-center border-b border-white/5">
+                    <h3 className="font-bold text-zinc-300 tracking-tight">Historial 🧐🍷</h3>
+                    <button onClick={() => setIsHistoryOpen(false)} className="md:hidden text-zinc-500 hover:text-white p-1"><XCircleIcon className="w-6 h-6"/></button>
                  </div>
-                 <div className="flex-1 overflow-y-auto p-2">
+                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                     <button onClick={() => {
                         const n = createNewSession(activeSession?.mode);
-                        setSessions([n, ...sessions]);
-                        setActiveSessionId(n.id);
-                        setIsHistoryOpen(false);
-                    }} className={`w-full flex items-center gap-2 p-3 rounded-xl ${currentTheme.colors.secondary} ${currentTheme.colors.text} mb-2 hover:opacity-80 active:scale-95 transition-all`}>
+                        setSessions([n, ...sessions]); setActiveSessionId(n.id); setIsHistoryOpen(false);
+                    }} className={`w-full flex items-center gap-3 p-4 rounded-2xl ${currentTheme.colors.secondary} ${currentTheme.colors.text} font-bold transition-all active:scale-95 shadow-lg`}>
                         <PlusIcon className="w-5 h-5" /> Nuevo Chat
                     </button>
-                    {sortedSessions.map(s => (
-                        <div key={s.id} onClick={() => { setActiveSessionId(s.id); setIsHistoryOpen(false); }} className={`p-3 rounded-xl cursor-pointer mb-1 flex justify-between items-center group transition-all duration-200 ${activeSessionId === s.id ? `bg-zinc-800 text-white border-l-2 ${currentTheme.colors.border}` : 'text-zinc-400 hover:bg-zinc-800/50'}`}>
-                            <div className="flex items-center gap-2 overflow-hidden">
-                                {s.isFavorite && <StarIcon className="w-3 h-3 text-yellow-500 flex-shrink-0" filled />}
-                                <span className="truncate text-sm">{s.title}</span>
-                            </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={(e) => toggleFavorite(e, s.id)} className={`hover:text-yellow-500 transition-colors active:scale-90 ${s.isFavorite ? 'text-yellow-500 opacity-100' : 'text-zinc-500'}`}>
-                                    <StarIcon className="w-4 h-4" filled={s.isFavorite} />
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); setSessions(sessions.filter(x => x.id !== s.id)); }} className={`text-zinc-500 hover:${currentTheme.colors.text} transition-all active:scale-90`}><TrashIcon className="w-4 h-4"/></button>
-                            </div>
+                    {sessions.map(s => (
+                        <div key={s.id} onClick={() => { setActiveSessionId(s.id); setIsHistoryOpen(false); }} className={`p-4 rounded-2xl cursor-pointer flex justify-between items-center group transition-all ${activeSessionId === s.id ? `bg-zinc-800 text-white ring-1 ${currentTheme.colors.ring}` : 'text-zinc-500 hover:bg-white/5'}`}>
+                            <span className="truncate text-sm font-medium">{s.title}</span>
+                            <button onClick={(e) => { e.stopPropagation(); setSessions(sessions.filter(x => x.id !== s.id)); }} className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-500"><TrashIcon className="w-4 h-4"/></button>
                         </div>
                     ))}
                  </div>
             </div>
 
-            {/* Main Chat Area */}
-            <div className="flex-1 flex flex-col h-full w-full bg-transparent">
-                {/* Top Bar */}
-                <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 bg-black/20 backdrop-blur-md z-10">
-                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-                        <button onClick={() => setIsHistoryOpen(!isHistoryOpen)} className="md:hidden p-2 text-zinc-400 active:scale-90 transition-transform"><MenuIcon className="w-6 h-6"/></button>
-                        <button onClick={() => setIsHistoryOpen(!isHistoryOpen)} className="hidden md:block p-2 text-zinc-400 hover:text-white active:scale-90 transition-transform"><MenuIcon className="w-5 h-5"/></button>
-                        <div className="h-6 w-px bg-zinc-800 mx-2"></div>
+            <div className="flex-1 flex flex-col h-full w-full bg-transparent overflow-hidden">
+                <div className="h-16 md:h-20 border-b border-white/5 flex items-center justify-between px-4 md:px-6 bg-black/10 backdrop-blur-xl z-10">
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
+                        <button onClick={() => setIsHistoryOpen(!isHistoryOpen)} className="p-2 text-zinc-400 hover:text-white transition-all active:scale-90"><MenuIcon className="w-6 h-6"/></button>
                         {Object.values(ChatMode).map(m => (
-                            <button key={m} onClick={() => updateSession(activeSession!.id, { mode: m, messages: [], history: [] })} className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium border transition-all active:scale-95 ${activeSession?.mode === m ? `${currentTheme.colors.accentBg} ${currentTheme.colors.text} ${currentTheme.colors.border}` : 'bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-600'}`}>
+                            <button key={m} onClick={() => updateSession(activeSession!.id, { mode: m, messages: [], history: [] })} className={`whitespace-nowrap px-3 py-1.5 rounded-full text-[10px] md:text-xs font-bold tracking-tight transition-all active:scale-95 border ${activeSession?.mode === m ? `${currentTheme.colors.accentBg} ${currentTheme.colors.text} ${currentTheme.colors.border}` : 'bg-transparent text-zinc-500 border-zinc-800'}`}>
                                 {m}
                             </button>
                         ))}
                     </div>
                 </div>
 
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 no-scrollbar">
                     {activeSession?.messages.map(msg => (
                         <div key={msg.id} className={`flex flex-col animate-fadeIn ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[85%] md:max-w-[70%] p-4 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl ${msg.sender === 'user' ? `${currentTheme.colors.userBubble} text-white rounded-tr-none` : 'bg-zinc-900 border border-white/10 text-zinc-100 rounded-tl-none'}`}>
-                                {msg.mediaUrl && <img src={msg.mediaUrl} className="mb-3 rounded-lg max-h-64 w-full object-cover animate-scaleIn" />}
+                            <div className={`max-w-[90%] md:max-w-[75%] p-4 md:p-6 rounded-[2rem] shadow-2xl border transition-all ${msg.sender === 'user' ? `${currentTheme.colors.userBubble} text-white rounded-tr-none border-transparent` : 'bg-zinc-900 border-white/5 text-zinc-100 rounded-tl-none'}`}>
                                 {msg.attachments && msg.attachments.length > 0 && (
-                                    <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
+                                    <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-2">
                                         {msg.attachments.map((a, i) => (
-                                            <img key={i} src={a.url} className="h-20 w-20 rounded-lg object-cover border border-white/10 animate-scaleIn" style={{animationDelay: `${i * 50}ms`}} />
+                                            <div key={i} className="h-24 w-24 rounded-2xl overflow-hidden border border-white/10 shadow-lg bg-zinc-800">
+                                                {a.type.startsWith('image/') ? (
+                                                    <img src={a.url} className="h-full w-full object-cover" />
+                                                ) : (
+                                                    <div className="h-full w-full flex items-center justify-center">
+                                                        <FileIcon className="w-8 h-8 text-zinc-500" />
+                                                    </div>
+                                                )}
+                                            </div>
                                         ))}
                                     </div>
                                 )}
-                                <div className="prose prose-invert prose-sm max-w-none">
-                                    {renderMessageText(msg.text)}
+                                <div className="prose prose-invert prose-sm md:prose-base max-w-none leading-relaxed">
+                                    {msg.text.split('\n').map((line, i) => <p key={i} className="min-h-[1rem]">{line}</p>)}
                                 </div>
                                 {msg.sender === 'ai' && (
-                                    <div className="mt-3 flex items-center gap-3 pt-2 border-t border-white/5">
-                                        <button onClick={() => handleTts(msg.id, msg.text)} className="text-zinc-500 hover:text-white transition-all active:scale-90">
-                                            {ttsState.messageId === msg.id && ttsState.status === 'LOADING' ? <LoadingSpinner /> : (ttsState.messageId === msg.id && ttsState.status === 'PLAYING' ? <PauseIcon className="w-4 h-4"/> : <SoundIcon className="w-4 h-4"/>)}
+                                    <div className="mt-4 flex items-center gap-4 pt-4 border-t border-white/5">
+                                        <button onClick={() => handleTts(msg.id, msg.text)} className="text-zinc-500 hover:text-white active:scale-90 transition-all">
+                                            {ttsState.messageId === msg.id && ttsState.status === 'LOADING' ? <LoadingSpinner /> : (ttsState.messageId === msg.id && ttsState.status === 'PLAYING' ? <PauseIcon className="w-5 h-5"/> : <SoundIcon className="w-5 h-5"/>)}
                                         </button>
-                                        <button onClick={() => navigator.clipboard.writeText(msg.text)} className="text-zinc-500 hover:text-white transition-all active:scale-90"><CopyIcon className="w-4 h-4"/></button>
-                                    </div>
-                                )}
-                                {msg.sources && msg.sources.length > 0 && (
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {msg.sources.map((s, i) => (
-                                            <a key={i} href={s.uri} target="_blank" className={`text-xs bg-black/30 px-2 py-1 rounded hover:bg-black/50 ${currentTheme.colors.text.replace('text-', 'text-').replace('500', '300')} truncate max-w-[200px] block transition-colors active:scale-95`}>{s.title}</a>
-                                        ))}
+                                        <button onClick={() => navigator.clipboard.writeText(msg.text)} className="text-zinc-500 hover:text-white transition-all active:scale-90"><CopyIcon className="w-5 h-5"/></button>
                                     </div>
                                 )}
                             </div>
-                            
-                            {/* Related Suggestions Below AI Response */}
-                            {msg.sender === 'ai' && msg.suggestions && msg.suggestions.length > 0 && (
-                                <div className="flex flex-wrap gap-2 mt-2 max-w-[85%] md:max-w-[70%] justify-start animate-fadeIn delay-300">
-                                    {msg.suggestions.map((s, i) => (
-                                        <button 
-                                            key={i}
-                                            onClick={() => handleSend(s)}
-                                            className={`text-xs px-3 py-1.5 rounded-full border bg-black/20 hover:bg-white/10 transition-all active:scale-95 text-zinc-400 hover:text-white ${currentTheme.colors.border.replace('border-', 'hover:border-')} border-white/10`}
-                                        >
-                                            {s}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
                         </div>
                     ))}
-                    {isLoading && <div className="flex justify-start animate-fadeIn"><div className={`bg-zinc-900 p-4 rounded-2xl rounded-tl-none border border-white/10 flex gap-2`}><div className={`w-2 h-2 ${currentTheme.colors.primary.replace('bg-', 'bg-')} rounded-full animate-bounce`}></div><div className={`w-2 h-2 ${currentTheme.colors.primary.replace('bg-', 'bg-')} rounded-full animate-bounce delay-75`}></div><div className={`w-2 h-2 ${currentTheme.colors.primary.replace('bg-', 'bg-')} rounded-full animate-bounce delay-150`}></div></div></div>}
-                    <div ref={messagesEndRef} />
+                    {isLoading && <div className="flex justify-start animate-fadeIn"><div className="bg-zinc-900 px-6 py-4 rounded-[2rem] rounded-tl-none border border-white/5 flex gap-2"><div className={`w-2.5 h-2.5 ${currentTheme.colors.primary} rounded-full animate-bounce`}></div><div className={`w-2.5 h-2.5 ${currentTheme.colors.primary} rounded-full animate-bounce delay-100`}></div><div className={`w-2.5 h-2.5 ${currentTheme.colors.primary} rounded-full animate-bounce delay-200`}></div></div></div>}
+                    <div ref={messagesEndRef} className="h-4" />
                 </div>
 
-                {/* Input Area - Unified Container */}
-                <div className="p-2 md:p-4 border-t border-white/5 bg-black/20 backdrop-blur-sm">
-                    <div 
-                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                        onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-                        onDrop={handleDrop}
-                        className={`max-w-4xl mx-auto bg-zinc-900 border rounded-[24px] p-2 transition-all shadow-lg flex flex-col gap-2 relative ${
-                            isDragging 
-                                ? `${currentTheme.colors.border} ring-2 ${currentTheme.colors.ring} bg-zinc-800` 
-                                : `border-zinc-800 focus-within:ring-2 focus-within:${currentTheme.colors.ring} focus-within:border-transparent`
-                        }`}
-                    >
-                         {isDragging && (
-                            <div className={`absolute inset-0 rounded-[24px] ${currentTheme.colors.accentBg} flex items-center justify-center z-20 backdrop-blur-sm pointer-events-none animate-fadeIn`}>
-                                <div className="bg-black/80 px-6 py-3 rounded-full text-white font-medium flex items-center gap-3 border border-white/10 shadow-xl">
-                                     <PaperclipIcon className={`w-6 h-6 ${currentTheme.colors.text}`} /> 
-                                     <span className="text-sm">Soltar para adjuntar archivos</span>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Intelligent Suggestions (Above Input) */}
-                        <div className="flex gap-2 px-3 pt-1 overflow-x-auto no-scrollbar animate-fadeIn items-center h-8">
-                            <SparklesIcon className={`w-4 h-4 flex-shrink-0 ${currentTheme.colors.text} opacity-70`} />
+                <div className="p-3 md:p-6 bg-black/5 backdrop-blur-xl border-t border-white/5">
+                    <div className={`max-w-4xl mx-auto bg-zinc-900/80 border rounded-[2rem] p-2 md:p-3 transition-all shadow-2xl flex flex-col gap-1 relative border-white/10`}>
+                        <div className="flex gap-2 px-3 overflow-x-auto no-scrollbar items-center min-h-[24px]">
                             {suggestions.map((s, i) => (
-                                <button 
-                                    key={i}
-                                    onClick={() => handleSuggestionClick(s)}
-                                    className={`text-xs whitespace-nowrap px-3 py-1 rounded-full bg-black/40 border border-white/5 hover:bg-white/10 ${currentTheme.colors.hover.replace('bg-', 'text-')} transition-all active:scale-95 text-zinc-400`}
-                                >
-                                    {s}
-                                </button>
+                                <button key={i} onClick={() => handleSend(s)} className="text-[10px] whitespace-nowrap px-3 py-1 rounded-full bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 transition-all">{s}</button>
                             ))}
                         </div>
-
-                        {/* Detected Link Indicator */}
-                        {detectedLink && (
-                            <div className="px-3 pt-1 animate-fadeIn">
-                                <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/40 border border-white/10 text-xs ${currentTheme.colors.text}`}>
-                                    <LinkIcon className="w-3 h-3" />
-                                    <span className="font-medium truncate max-w-[200px]">🔗 Enlace detectado: Análisis activado</span>
-                                </div>
-                            </div>
-                        )}
                         
-                        {/* Media Previews Inside Input Area */}
                         {mediaPreviews.length > 0 && (
-                            <div className="flex gap-2 px-2 pt-2 overflow-x-auto no-scrollbar animate-fadeIn">
+                            <div className="flex gap-3 px-3 py-3 overflow-x-auto no-scrollbar border-t border-white/5 mt-1 animate-fadeIn">
                                 {mediaPreviews.map((p, i) => (
-                                    <AttachmentPreview 
-                                        key={i} 
-                                        attachment={p} 
-                                        onRemove={() => { 
-                                            setMediaPreviews(prev => prev.filter((_, idx) => idx !== i)); 
-                                            setAttachedFiles(prev => prev.filter((_, idx) => idx !== i)); 
-                                        }} 
-                                    />
+                                    <AttachmentPreview key={i} attachment={p} onRemove={() => { 
+                                        setMediaPreviews(prev => prev.filter((_, idx) => idx !== i)); 
+                                        setAttachedFiles(prev => prev.filter((_, idx) => idx !== i)); 
+                                    }} />
                                 ))}
                             </div>
                         )}
 
                         <div className="flex items-center gap-2">
-                            <button onClick={() => fileInputRef.current?.click()} className="p-2 text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all active:scale-90" title="Adjuntar">
-                                <PaperclipIcon className="w-5 h-5"/>
-                            </button>
-                            <button onClick={toggleListening} className={`p-2 rounded-full transition-all active:scale-90 ${isListening ? `${currentTheme.colors.text} ${currentTheme.colors.secondary} animate-pulse` : 'text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700'}`} title="Dictar">
-                                <MicIcon className="w-5 h-5"/>
-                            </button>
+                            <button onClick={() => fileInputRef.current?.click()} className="p-2.5 text-zinc-400 hover:text-white bg-white/5 rounded-full transition-all active:scale-90" title="Adjuntar archivos"><PaperclipIcon className="w-5 h-5"/></button>
+                            <button onClick={toggleListening} className={`p-2.5 rounded-full transition-all ${isListening ? `${currentTheme.colors.text} ${currentTheme.colors.secondary} animate-pulse` : 'text-zinc-400 hover:text-white bg-white/5'}`} title="Dictar mensaje"><MicIcon className="w-5 h-5"/></button>
                             <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
 
                             <input 
                                 value={input} 
-                                onChange={e => setInput(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleSend()}
-                                placeholder={isListening ? "Escuchando..." : `Enviar mensaje a Arens IA (${activeSession?.mode})...`}
-                                className="flex-1 bg-transparent border-none text-white focus:outline-none focus:ring-0 px-2 py-2 placeholder-zinc-500"
+                                onChange={e => { setInput(e.target.value); if(error) setError(null); }}
+                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                                placeholder={isListening ? "Escuchando..." : (mediaPreviews.some(p => p.status === 'uploading') ? "Procesando archivos..." : "¿Qué quieres saber? 🧐🍷")}
+                                className="flex-1 bg-transparent border-none text-white focus:outline-none px-2 py-3 text-sm md:text-base placeholder-zinc-600"
+                                disabled={mediaPreviews.some(p => p.status === 'uploading')}
                             />
 
-                            <button onClick={() => handleSend()} disabled={!input && !attachedFiles.length} className={`p-2 text-white rounded-full disabled:bg-zinc-700 disabled:text-zinc-500 transition-all shadow-lg active:scale-90 ${currentTheme.colors.sendButton}`}>
-                                {isLoading ? <LoadingSpinner /> : <SendIcon className="w-5 h-5" />}
+                            <button onClick={() => handleSend()} disabled={(!input.trim() && !attachedFiles.length) || mediaPreviews.some(p => p.status === 'uploading')} className={`p-3 md:p-4 text-white rounded-full transition-all shadow-xl active:scale-90 disabled:opacity-40 ${currentTheme.colors.sendButton}`}>
+                                {isLoading ? <LoadingSpinner /> : <SendIcon className="w-5 h-5 md:w-6 md:h-6" />}
                             </button>
                         </div>
                     </div>
+                    {/* Send Status Message */}
+                    {error && (
+                        <div className="max-w-4xl mx-auto mt-3 px-4 py-3 bg-red-950/20 border border-red-900/30 text-red-400 text-xs md:text-sm rounded-xl flex items-center justify-between animate-fadeIn">
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg">🧐🍷</span>
+                                <span>{error}</span>
+                            </div>
+                            <button onClick={() => setError(null)} className="p-1 hover:bg-white/5 rounded-full transition-colors">
+                                <XIcon className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -23,9 +23,21 @@ const YouTubeSearch: React.FC = () => {
 
     try {
       const results = await searchYouTube(query);
-      setVideos(results);
+      if (results.length === 0) {
+          setError("Mi búsqueda no ha arrojado resultados para tal petición. Quizás una terminología más refinada sea apropiada 🧐🍷.");
+      } else {
+          setVideos(results);
+      }
     } catch (err: any) {
-      setError(err.message);
+      let msg = err.message || "Un contratiempo inesperado ha ocurrido.";
+      if (msg.includes("API_KEY")) {
+          msg = "La llave de acceso a YouTube no ha sido configurada. Por favor, asegúrese de que el sistema cuente con sus credenciales correspondientes 🧐🍷.";
+      } else if (msg.includes("quota")) {
+          msg = "Parece que YouTube ha limitado nuestras consultas por hoy. Un momento de paciencia sería lo ideal 🧐🍷.";
+      } else {
+          msg = `${msg} 🧐🍷`;
+      }
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -51,7 +63,7 @@ const YouTubeSearch: React.FC = () => {
                     <input 
                         type="text"
                         value={query}
-                        onChange={(e) => setQuery(e.target.value)}
+                        onChange={(e) => { setQuery(e.target.value); if(error) setError(null); }}
                         placeholder="Busca videos, tutoriales, música..."
                         className="w-full bg-transparent border-none text-white text-lg px-4 py-3 focus:outline-none placeholder-zinc-600"
                     />
@@ -68,13 +80,17 @@ const YouTubeSearch: React.FC = () => {
 
         {/* Error Message */}
         {error && (
-            <div className="max-w-2xl mx-auto bg-red-900/20 border border-red-800 text-red-200 p-4 rounded-xl flex items-center gap-3 animate-fadeIn">
-                <div className="bg-red-500/20 p-2 rounded-full"><XIcon className="w-5 h-5 text-red-500" /></div>
-                <div>
-                    <p className="font-bold">Error al buscar</p>
-                    <p className="text-sm opacity-80">{error}</p>
-                    {error.includes('API_KEY') && <p className="text-xs mt-1 text-red-300">Verifica que la variable YOUTUBE_API_KEY esté configurada en tu archivo .env</p>}
+            <div className="max-w-2xl mx-auto bg-red-900/20 border border-red-800 text-red-200 p-4 rounded-xl flex items-center justify-between animate-fadeIn shadow-xl">
+                <div className="flex items-center gap-3">
+                    <div className="bg-red-500/20 p-2 rounded-full"><XIcon className="w-5 h-5 text-red-500" /></div>
+                    <div>
+                        <p className="font-bold">Contratiempo en la búsqueda 🧐🍷</p>
+                        <p className="text-sm opacity-90">{error}</p>
+                    </div>
                 </div>
+                <button onClick={() => setError(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                    <XIcon className="w-5 h-5" />
+                </button>
             </div>
         )}
 
@@ -87,7 +103,6 @@ const YouTubeSearch: React.FC = () => {
                     className="group bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden cursor-pointer hover:bg-zinc-800 hover:border-white/20 hover:-translate-y-1 transition-all duration-300 animate-scaleIn shadow-lg"
                     style={{animationDelay: `${idx * 50}ms`}}
                 >
-                    {/* Thumbnail */}
                     <div className="aspect-video w-full relative overflow-hidden">
                         <img 
                             src={video.thumbnail} 
@@ -101,7 +116,6 @@ const YouTubeSearch: React.FC = () => {
                         </div>
                     </div>
                     
-                    {/* Info */}
                     <div className="p-4">
                         <h3 className="text-white font-semibold line-clamp-2 mb-2 group-hover:text-white/90 leading-snug" dangerouslySetInnerHTML={{ __html: video.title }}></h3>
                         <div className="flex items-center justify-between text-xs text-zinc-500 mt-2">
@@ -119,7 +133,7 @@ const YouTubeSearch: React.FC = () => {
         {!isLoading && videos.length === 0 && !error && (
             <div className="text-center py-20 opacity-30 animate-fadeIn">
                 <YouTubeIcon className="w-24 h-24 mx-auto mb-4" />
-                <p className="text-xl">Explora el mundo del video</p>
+                <p className="text-xl italic font-light">Explore el mundo del video con distinción...</p>
             </div>
         )}
       </div>
@@ -128,16 +142,12 @@ const YouTubeSearch: React.FC = () => {
       {selectedVideo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fadeIn">
             <div className="w-full max-w-5xl bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl border border-zinc-800 relative flex flex-col animate-scaleIn">
-                
-                {/* Header */}
                 <div className="p-4 flex justify-between items-center border-b border-zinc-800">
                     <h3 className="font-bold text-white line-clamp-1 pr-4" dangerouslySetInnerHTML={{ __html: selectedVideo.title }}></h3>
                     <button onClick={() => setSelectedVideo(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white">
                         <XIcon className="w-6 h-6" />
                     </button>
                 </div>
-
-                {/* Video Player */}
                 <div className="aspect-video w-full bg-black">
                     <iframe 
                         width="100%" 
@@ -149,8 +159,6 @@ const YouTubeSearch: React.FC = () => {
                         allowFullScreen
                     ></iframe>
                 </div>
-
-                {/* Details */}
                 <div className="p-6 max-h-40 overflow-y-auto bg-zinc-900/50">
                      <div className="flex items-center justify-between mb-3">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${currentTheme.colors.secondary} ${currentTheme.colors.text}`}>

@@ -14,8 +14,9 @@ export enum Tab {
 export enum ChatMode {
   STANDARD = 'Estándar',
   LOW_LATENCY = 'Flash Lite',
+  LIVE_SEARCH = 'Búsqueda Rápida',
   COMPLEX = 'Pro (Pensando)',
-  WEB_SEARCH = 'Búsqueda',
+  WEB_SEARCH = 'Búsqueda Profunda',
   MAPS_SEARCH = 'Mapas',
   CANVAS = 'Canvas',
 }
@@ -24,6 +25,8 @@ export interface Attachment {
   name: string;
   type: string;
   url: string;
+  status?: 'uploading' | 'completed' | 'error';
+  progress?: number;
 }
 
 export interface Message {

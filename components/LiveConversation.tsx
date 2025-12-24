@@ -29,7 +29,6 @@ const LiveConversation: React.FC = () => {
     useEffect(() => {
         if (!isActive) return;
         const interval = setInterval(() => {
-            // If interrupted, flatline briefly
             if (isInterrupted) {
                 setVisualizerData(new Array(20).fill(5));
             } else {
@@ -43,27 +42,21 @@ const LiveConversation: React.FC = () => {
         try {
             sessionRef.current?.close();
         } catch (e) {
-            console.error("Error closing session:", e);
+            console.warn("Session already closed or error closing:", e);
         }
         sessionRef.current = null;
         
-        // Safely close Input Context
-        if (inputCtx.current) {
-            if (inputCtx.current.state !== 'closed') {
-                inputCtx.current.close().catch(e => console.error("Error closing inputCtx:", e));
-            }
-            inputCtx.current = null;
+        // Robust AudioContext closing
+        if (inputCtx.current && inputCtx.current.state !== 'closed') {
+            inputCtx.current.close().catch(e => console.error("Error closing inputCtx:", e));
         }
+        inputCtx.current = null;
 
-        // Safely close Output Context
-        if (outputCtx.current) {
-            if (outputCtx.current.state !== 'closed') {
-                outputCtx.current.close().catch(e => console.error("Error closing outputCtx:", e));
-            }
-            outputCtx.current = null;
+        if (outputCtx.current && outputCtx.current.state !== 'closed') {
+            outputCtx.current.close().catch(e => console.error("Error closing outputCtx:", e));
         }
+        outputCtx.current = null;
         
-        // Stop all playing audio
         activeSources.current.forEach(source => {
             try { source.stop(); } catch (e) {}
         });
@@ -80,7 +73,6 @@ const LiveConversation: React.FC = () => {
         setCaptions('');
     }, []);
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => {
             stop();
@@ -90,7 +82,16 @@ const LiveConversation: React.FC = () => {
     const start = async () => {
         if (isActive || isConnecting) return;
         setIsConnecting(true); setError(null); setCaptions('');
+        
         try {
+            // Verificar clave de API antes de conectar
+            if (window.aistudio) {
+                const hasKey = await window.aistudio.hasSelectedApiKey();
+                if (!hasKey) {
+                    await window.aistudio.openSelectKey();
+                }
+            }
+
             const live = getLiveSession();
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
@@ -99,16 +100,17 @@ const LiveConversation: React.FC = () => {
                 callbacks: {
                     onopen: () => {
                         setIsConnecting(false); setIsActive(true);
-                        inputCtx.current = new AudioContext({ sampleRate: 16000 });
-                        outputCtx.current = new AudioContext({ sampleRate: 24000 });
+                        inputCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+                        outputCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
                         nextStartTime.current = 0;
                         
                         const src = inputCtx.current.createMediaStreamSource(stream);
                         processor.current = inputCtx.current.createScriptProcessor(4096, 1, 1);
                         processor.current.onaudioprocess = (e) => {
+                            if (!sessionRef.current) return;
                             const data = e.inputBuffer.getChannelData(0);
                             const blob = { data: encode(new Uint8Array(new Int16Array(data.map(x => x * 32768)).buffer)), mimeType: 'audio/pcm;rate=16000' };
-                            promise.then(s => s.sendRealtimeInput({ media: blob }));
+                            sessionRef.current.sendRealtimeInput({ media: blob });
                         };
                         src.connect(processor.current);
                         processor.current.connect(inputCtx.current.destination);
@@ -116,32 +118,27 @@ const LiveConversation: React.FC = () => {
                     onmessage: async (msg: LiveServerMessage) => {
                         const serverContent = msg.serverContent;
 
-                        // Handle Subtitles / Transcription
                         if (serverContent?.outputTranscription?.text) {
                             if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
                             setCaptions(prev => prev + serverContent.outputTranscription!.text);
                         }
 
-                        // Handle Turn Complete (Clear captions after delay)
                         if (serverContent?.turnComplete) {
                             if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
                             captionTimeoutRef.current = setTimeout(() => {
                                 setCaptions('');
-                            }, 5000); // Keep readable for longer
+                            }, 5000);
                         }
 
-                        // Handle Interruption
                         if (serverContent?.interrupted) {
-                            console.log("Interrupción detectada (Barge-in)");
                             setIsInterrupted(true);
-                            setCaptions(''); // Clear captions immediately on interrupt
+                            setCaptions('');
                             if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
                             
-                            setTimeout(() => setIsInterrupted(false), 500); // Reset visual flag
+                            setTimeout(() => setIsInterrupted(false), 500);
 
-                            // Stop all currently playing audio
                             activeSources.current.forEach((source) => {
-                                try { source.stop(); } catch (e) { console.error(e); }
+                                try { source.stop(); } catch (e) {}
                             });
                             activeSources.current.clear();
                             nextStartTime.current = 0;
@@ -149,12 +146,10 @@ const LiveConversation: React.FC = () => {
                         }
 
                         const audio = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                        if (audio && outputCtx.current) {
-                            // If we reset due to interruption, start from current time
+                        if (audio && outputCtx.current && outputCtx.current.state !== 'closed') {
                             if (nextStartTime.current === 0) {
                                 nextStartTime.current = outputCtx.current.currentTime;
                             }
-                            // Ensure we don't schedule in the past
                             nextStartTime.current = Math.max(nextStartTime.current, outputCtx.current.currentTime);
 
                             const buf = await decodeAudioData(decode(audio), outputCtx.current, 24000, 1);
@@ -162,7 +157,6 @@ const LiveConversation: React.FC = () => {
                             src.buffer = buf;
                             src.connect(outputCtx.current.destination);
                             
-                            // Track the source
                             activeSources.current.add(src);
                             src.onended = () => {
                                 activeSources.current.delete(src);
@@ -173,68 +167,80 @@ const LiveConversation: React.FC = () => {
                         }
                     },
                     onclose: stop,
-                    onerror: (e) => { console.error(e); setError(e.message); stop(); }
+                    onerror: async (e: any) => { 
+                        console.error("Live Error:", e);
+                        if (e.message?.includes("403") || e.message?.toLowerCase().includes("permission")) {
+                             if(window.aistudio) await window.aistudio.openSelectKey();
+                             setError("Error de permisos. He abierto el selector de llaves 🧐🍷.");
+                        } else {
+                             setError(e.message || "Error de conexión");
+                        }
+                        stop(); 
+                    }
                 },
                 config: { 
                     responseModalities: [Modality.AUDIO], 
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
-                    outputAudioTranscription: {} // Enable audio transcription from model
+                    outputAudioTranscription: {} 
                 }
             });
             sessionRef.current = await promise;
-        } catch (e: any) { setError(e.message); setIsConnecting(false); }
+        } catch (e: any) { 
+            setError(e.message); 
+            setIsConnecting(false); 
+        }
     };
 
     return (
         <div className="h-full flex flex-col items-center justify-center bg-black relative overflow-hidden">
-            {/* Background Ambient Light */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] md:w-[500px] h-[300px] md:h-[500px] blur-[80px] md:blur-[120px] rounded-full transition-all duration-300 ${isActive ? (isInterrupted ? 'bg-orange-500/30 scale-90' : 'bg-red-600/20 scale-100 opacity-100') : 'bg-red-600/5 opacity-20 scale-50'}`}></div>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] md:w-[600px] h-[300px] md:h-[600px] blur-[100px] md:blur-[150px] rounded-full transition-all duration-500 ${isActive ? (isInterrupted ? 'bg-orange-500/40' : 'bg-red-600/30') : 'bg-red-600/5 opacity-20'}`}></div>
 
-            {/* Main Container */}
-            <div className="relative z-10 flex flex-col items-center w-full max-w-3xl px-4 md:px-6 h-full justify-between py-6 md:py-14">
+            <div className="relative z-10 flex flex-col items-center w-full max-w-4xl px-4 md:px-8 h-full justify-between py-8 md:py-20">
                 
-                {/* Controls Section (Centered) */}
-                <div className="flex-1 flex flex-col items-center justify-center w-full max-w-md min-h-0">
-                    <div className="flex flex-wrap justify-center gap-2 mb-6 md:mb-12 w-full">
+                <div className="flex-1 flex flex-col items-center justify-center w-full">
+                    <div className="flex flex-wrap justify-center gap-2 mb-10 md:mb-16 w-full">
                         {availableVoices.map(v => (
-                            <button key={v} onClick={() => setVoice(v)} disabled={isActive} className={`px-3 py-1.5 md:px-4 md:py-2 text-[10px] md:text-xs font-bold uppercase tracking-widest rounded-full transition-all border ${voice === v ? 'bg-white text-black border-white' : 'bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-600'}`}>
+                            <button key={v} onClick={() => setVoice(v)} disabled={isActive} className={`px-4 py-2 text-[10px] md:text-xs font-bold uppercase tracking-widest rounded-full transition-all border ${voice === v ? 'bg-white text-black border-white shadow-lg shadow-white/10' : 'bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-600'}`}>
                                 {v}
                             </button>
                         ))}
                     </div>
 
-                    {/* Visualizer */}
-                    <div className="h-20 md:h-32 flex items-end gap-1 mb-8 md:mb-12">
+                    <div className="h-24 md:h-40 flex items-end gap-1.5 md:gap-2 mb-12 md:mb-20">
                         {visualizerData.map((h, i) => (
-                            <div key={i} className={`w-2 md:w-3 rounded-t-full transition-all duration-75 ${isInterrupted ? 'bg-orange-500' : 'bg-gradient-to-t from-red-600 to-red-400'}`} style={{ height: isActive ? `${Math.max(10, h)}%` : '10%', opacity: isActive ? 1 : 0.3 }}></div>
+                            <div key={i} className={`w-2 md:w-4 rounded-t-full transition-all duration-75 ${isInterrupted ? 'bg-orange-500' : 'bg-gradient-to-t from-red-600 to-red-400'}`} style={{ height: isActive ? `${Math.max(12, h)}%` : '12%', opacity: isActive ? 1 : 0.3 }}></div>
                         ))}
                     </div>
 
                     <button
                         onClick={isActive ? stop : start}
                         disabled={isConnecting}
-                        className={`w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${isActive ? 'bg-white text-red-600 scale-110 shadow-white/20' : 'bg-red-600 text-white hover:scale-105 shadow-red-900/50'}`}
+                        className={`w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl relative group ${isActive ? 'bg-white text-red-600 scale-110' : 'bg-red-600 text-white hover:scale-105 shadow-red-900/40'}`}
                     >
-                        {isConnecting ? <div className="animate-spin w-6 h-6 md:w-8 md:h-8 border-4 border-red-600 border-t-transparent rounded-full"></div> : <MicIcon className="w-8 h-8 md:w-10 md:h-10" />}
+                        {isActive && <div className="absolute inset-[-8px] border-2 border-white/20 rounded-full animate-ping"></div>}
+                        {isConnecting ? <div className="animate-spin w-8 h-8 md:w-10 md:h-10 border-4 border-red-600 border-t-transparent rounded-full"></div> : <MicIcon className="w-10 h-10 md:w-12 md:h-12" />}
                     </button>
 
-                    <div className="mt-6 md:mt-8 flex flex-col items-center gap-2">
-                        <p className="text-zinc-400 font-light tracking-wider uppercase text-xs md:text-sm text-center">
-                            {isConnecting ? 'Conectando...' : isActive ? (isInterrupted ? 'Escuchando...' : 'En vivo con Gemini') : 'Toca para hablar'}
+                    <div className="mt-8 md:mt-10 flex flex-col items-center gap-3">
+                        <p className="text-zinc-400 font-medium tracking-widest uppercase text-xs md:text-sm text-center">
+                            {isConnecting ? 'Conectando...' : isActive ? (isInterrupted ? 'Escuchando...' : 'En vivo con Arens IA') : 'Presiona para conversar'}
                         </p>
-                        {isActive && <p className="text-[10px] md:text-xs text-zinc-600 text-center">Puedes interrumpirme cuando quieras</p>}
+                        {isActive && <p className="text-[10px] md:text-xs text-zinc-600 font-medium uppercase tracking-tight text-center">Puedes interrumpir en cualquier momento 🍷🧐</p>}
                     </div>
 
-                    {error && <div className="mt-4 text-red-500 bg-red-950/30 px-4 py-2 rounded-lg border border-red-900/50 text-xs md:text-sm max-w-full text-center">{error}</div>}
+                    {error && (
+                        <div className="mt-6 text-red-500 bg-red-950/20 px-6 py-3 rounded-xl border border-red-900/30 text-xs md:text-sm text-center animate-fadeIn max-w-sm">
+                            {error}
+                        </div>
+                    )}
                 </div>
 
-                {/* Subtitles Area - Dynamic and Scrollable */}
-                <div className="w-full flex items-end justify-center min-h-[60px] shrink-0 z-20">
+                <div className="w-full flex items-end justify-center min-h-[100px] md:min-h-[140px] shrink-0 z-20 pb-4 md:pb-0">
                     {isActive && captions && (
-                         <div className="text-center animate-fadeIn transition-all duration-300 ease-out w-full max-w-3xl bg-black/60 backdrop-blur-md p-4 md:p-6 rounded-2xl md:rounded-3xl border border-white/10 shadow-2xl max-h-[30vh] md:max-h-[35vh] overflow-y-auto custom-scrollbar">
-                            <p className="text-lg md:text-2xl font-medium text-white/90 drop-shadow-lg leading-relaxed whitespace-pre-wrap">
+                         <div className="text-center animate-fadeIn transition-all duration-300 ease-out w-full max-w-3xl bg-black/70 backdrop-blur-xl p-5 md:p-8 rounded-2xl md:rounded-[2.5rem] border border-white/10 shadow-2xl max-h-[35vh] md:max-h-[40vh] overflow-y-auto custom-scrollbar">
+                            <p className="text-lg md:text-3xl font-semibold text-white/95 leading-snug md:leading-relaxed whitespace-pre-wrap tracking-tight">
                                 {captions}
-                                <span className="inline-block w-1.5 h-5 md:w-2 md:h-6 ml-1 align-middle bg-red-500 animate-pulse rounded-full"></span>
+                                <span className="inline-block w-2 h-6 md:w-2.5 md:h-8 ml-2 align-middle bg-red-500 animate-pulse rounded-full"></span>
                             </p>
                          </div>
                     )}

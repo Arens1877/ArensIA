@@ -22,9 +22,9 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   ];
 
   return (
-    <header className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-700 p-4 sticky top-0 z-10">
-      <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center">
-        <h1 className="text-2xl font-bold text-white mb-4 sm:mb-0">
+    <header className="bg-zinc-900/80 backdrop-blur-xl border-b border-white/5 p-4 sticky top-0 z-10 shadow-lg">
+      <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+        <h1 className="text-2xl font-bold text-white tracking-tighter">
           Arens <span className={currentTheme.colors.text}>IA</span>
         </h1>
         <nav className="flex flex-wrap justify-center gap-2">
@@ -32,25 +32,26 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
+              className={`flex items-center px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 active:scale-95 ${
                 activeTab === tab.id
-                  ? `${currentTheme.colors.primary} text-white`
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                  ? `${currentTheme.colors.primary} text-white shadow-lg`
+                  : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent hover:border-white/10'
               }`}
             >
               {tab.icon}
-              <span className="hidden md:inline">{tab.id}</span>
+              <span className="hidden lg:inline">{tab.id}</span>
             </button>
           ))}
+          <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block"></div>
           <a
             href="https://youtube.com/@arens1877"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Canal de YouTube del creador"
-            className="flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 text-gray-300 hover:bg-gray-700 hover:text-white"
+            className="flex items-center px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white border border-red-600/20 active:scale-95"
           >
             <YouTubeIcon className="h-5 w-5 mr-2" />
-            <span className="hidden md:inline">Canal de YouTube</span>
+            <span className="hidden lg:inline">YouTube</span>
           </a>
         </nav>
       </div>
