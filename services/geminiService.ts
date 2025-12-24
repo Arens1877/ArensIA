@@ -1,6 +1,17 @@
-
 import { GoogleGenAI, GenerateContentResponse, Modality, Part, GroundingChunk, Content } from "@google/genai";
 import { ChatMode, AspectRatio, GroundingSource, VideoAspectRatio, ImageSize } from '../types';
+
+/**
+ * Declaraciones para que TypeScript reconozca import.meta.env.VITE_API_KEY
+ */
+declare global {
+  interface ImportMetaEnv {
+    readonly VITE_API_KEY?: string;
+  }
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+}
 
 /**
  * Solicita al usuario que seleccione una clave de API si el modelo lo requiere
@@ -12,11 +23,28 @@ const requestKeySelection = async () => {
     }
 };
 
-const getAi = () => {
-    if (!process.env.API_KEY) {
-        throw new Error("Mis disculpas, pero la llave de mi sabiduría (API Key) no ha sido configurada correctamente 🧐🍷.");
+/**
+ * Obtiene la clave de API priorizando:
+ * 1) import.meta.env.VITE_API_KEY (Vite)
+ * 2) process.env.API_KEY (fallback)
+ */
+const getApiKeyFromEnv = (): string | undefined => {
+    try {
+        // @ts-ignore - import.meta.env puede no estar presente en algunos entornos de ejecución
+        const viteKey = (typeof import !== 'undefined' && import.meta && (import.meta.env as any).VITE_API_KEY) ? (import.meta.env as any).VITE_API_KEY : undefined;
+        const nodeKey = process?.env?.API_KEY;
+        return viteKey || nodeKey;
+    } catch (e) {
+        return process?.env?.API_KEY;
     }
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
+};
+
+const getAi = () => {
+    const apiKey = getApiKeyFromEnv();
+    if (!apiKey) {
+        throw new Error("Mis disculpas, pero la llave de mi sabiduría (VITE_API_KEY / API_KEY) no ha sido configurada correctamente 🧐🍷. Añada VITE_API_KEY en su .env y reinicie el servidor.");
+    }
+    return new GoogleGenAI({ apiKey });
 };
 
 const handleApiError = async (e: any): Promise<string> => {
@@ -73,8 +101,8 @@ export const generateChatResponse = async (
         const ai = getAi();
         let modelName: string;
         
-        let systemInstruction = "Eres Arens IA, una IA sofisticada y elegante. Responde con estilo moderno y usa markdown. Es MANDATORIO usar emojis '🧐🍷' frecuentemente. Sé conciso y distinguido.";
-        systemInstruction += `\n\n[PROTOCOLO DE SUGERENCIAS]: Al final de tu respuesta, DEBES generar exactamente 3 sugerencias breves en formato JSON:\n\`\`\`json_suggestions\n["Sugerencia 1", "Sugerencia 2", "Sugerencia 3"]\n\`\`\``;
+        let systemInstruction = "Eres Arens IA, una IA sofisticada y elegante. Responde con estilo moderno y usa markdown. Es MANDATORIO usar emojis '🧐🍷' frecuentemente. Sé conciso y distinguid[...]
+        systemInstruction += `\n\n[PROTOCOLO DE SUGERENCIAS]: Al final de tu respuesta, DEBES generar exactamente 3 sugerencias breves en formato JSON:\n\`\`\`json_suggestions\n["Sugerencia 1", "Suger[...]
 
         let config: any = {};
         let toolConfig: any = {};
@@ -263,7 +291,9 @@ export const generateVideo = async (prompt: string, base64Image: string, mimeTyp
         }
         const link = operation.response?.generatedVideos?.[0]?.video?.uri;
         if (!link) throw new Error("La producción del video ha sido interrumpida 🧐🍷.");
-        const res = await fetch(`${link}&key=${process.env.API_KEY}`);
+        const apiKey = getApiKeyFromEnv();
+        if (!apiKey) throw new Error("No se encontró la API key al descargar el video.");
+        const res = await fetch(`${link}&key=${apiKey}`);
         const blob = await res.blob();
         return URL.createObjectURL(blob);
     } catch (e) {
